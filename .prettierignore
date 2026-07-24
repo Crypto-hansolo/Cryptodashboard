@@ -1,0 +1,9 @@
+node_modules
+dist
+.next
+coverage
+package-lock.json
+playwright-report
+test-results
+packages/db/prisma/migrations
+docs/diagrams/*.svg

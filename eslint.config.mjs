@@ -1,0 +1,63 @@
+import js from '@eslint/js';
+import tsParser from '@typescript-eslint/parser';
+import tsPlugin from '@typescript-eslint/eslint-plugin';
+import prettier from 'eslint-config-prettier';
+
+/**
+ * Flat ESLint config for the whole monorepo.
+ *
+ * `no-undef` is disabled globally: TypeScript already resolves globals per-package
+ * via its `lib`/`types` settings, so duplicating a browser+node globals map here
+ * would only ever drift out of sync.
+ */
+/** @type {import('eslint').Linter.Config[]} */
+export default [
+  {
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/.next/**',
+      '**/coverage/**',
+      '**/playwright-report/**',
+      '**/test-results/**',
+      'packages/db/generated/**',
+      'packages/db/prisma/migrations/**',
+    ],
+  },
+  js.configs.recommended,
+  {
+    files: ['**/*.{ts,tsx,mts,cts}'],
+    languageOptions: {
+      parser: tsParser,
+      ecmaVersion: 2023,
+      sourceType: 'module',
+      parserOptions: {
+        ecmaFeatures: { jsx: true },
+      },
+    },
+    plugins: { '@typescript-eslint': tsPlugin },
+    rules: {
+      ...tsPlugin.configs.recommended.rules,
+      'no-undef': 'off',
+      'no-unused-vars': 'off',
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
+      ],
+      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/consistent-type-imports': ['error', { prefer: 'type-imports' }],
+      '@typescript-eslint/no-empty-object-type': 'off',
+      '@typescript-eslint/no-require-imports': 'off',
+      eqeqeq: ['error', 'smart'],
+      'prefer-const': 'error',
+      'no-console': 'off',
+    },
+  },
+  {
+    files: ['**/*.test.ts', '**/*.spec.ts', '**/tests/**/*.ts', '**/e2e/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
+  prettier,
+];

@@ -1,0 +1,56 @@
+{
+  "name": "crypto-intelligence-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Real-time cryptocurrency intelligence platform: multi-source ingestion, LLM analysis, alerting and terminal-grade UI.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev": "concurrently -n web,worker -c cyan,magenta \"npm:dev:web\" \"npm:dev:worker\"",
+    "dev:web": "npm run dev -w apps/web",
+    "dev:worker": "npm run dev -w @cid/worker",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,md,json,yml,yaml}\"",
+    "test": "vitest run --project unit",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --project unit --coverage",
+    "test:e2e": "playwright test",
+    "db:generate": "npm run generate -w @cid/db",
+    "db:migrate": "npm run migrate -w @cid/db",
+    "db:migrate:deploy": "npm run migrate:deploy -w @cid/db",
+    "db:push": "npm run push -w @cid/db",
+    "db:seed": "npm run seed -w @cid/db",
+    "db:studio": "npm run studio -w @cid/db",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test:unit"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@playwright/test": "^1.62.0",
+    "@types/node": "^22.10.2",
+    "@typescript-eslint/eslint-plugin": "^8.19.0",
+    "@typescript-eslint/parser": "^8.19.0",
+    "@vitest/coverage-v8": "^2.1.8",
+    "concurrently": "^9.1.2",
+    "eslint": "^9.17.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "typescript": "5.9.3",
+    "vitest": "^2.1.8"
+  }
+}

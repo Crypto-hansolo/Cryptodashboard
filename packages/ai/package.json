@@ -1,0 +1,24 @@
+{
+  "name": "@cid/ai",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local-LLM intelligence layer: provider adapters, event enrichment, embeddings, RAG research agent, report generation.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cid/core": "*",
+    "@cid/platform": "*",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vitest": "^2.1.8"
+  }
+}

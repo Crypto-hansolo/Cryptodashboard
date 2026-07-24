@@ -1,0 +1,36 @@
+{
+  "name": "@cid/db",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Persistence layer: Prisma schema plus repository implementations of the @cid/core ports.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "generate": "prisma generate",
+    "migrate": "prisma migrate dev",
+    "migrate:deploy": "prisma migrate deploy",
+    "push": "prisma db push",
+    "studio": "prisma studio",
+    "seed": "tsx prisma/seed.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@cid/core": "*",
+    "@cid/platform": "*",
+    "@prisma/client": "^6.19.3",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "prisma": "^6.19.3",
+    "tsx": "^4.19.2",
+    "typescript": "5.9.3",
+    "vitest": "^2.1.8"
+  }
+}

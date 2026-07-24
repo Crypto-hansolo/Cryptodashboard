@@ -1,0 +1,31 @@
+{
+  "name": "@cid/worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Background runtime: per-source scheduler, BullMQ queues, alert rule engine, notification fan-out, report cron.",
+  "type": "module",
+  "main": "./src/main.ts",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cid/ai": "*",
+    "@cid/connectors": "*",
+    "@cid/core": "*",
+    "@cid/db": "*",
+    "@cid/platform": "*",
+    "bullmq": "^5.81.2",
+    "croner": "^10.0.1",
+    "ioredis": "^5.11.1",
+    "nodemailer": "^9.0.3",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^8.0.1",
+    "tsx": "^4.19.2",
+    "typescript": "5.9.3",
+    "vitest": "^2.1.8"
+  }
+}
