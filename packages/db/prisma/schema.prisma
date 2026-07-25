@@ -1,0 +1,1182 @@
+// Crypto Intelligence Dashboard — data model
+//
+// Design rules, applied throughout:
+//
+//  1. APPEND-ONLY HISTORY. Observations are never updated in place. A price at
+//     12:00:05 is a different fact from the price at 12:00:15, and overwriting
+//     one destroys the ability to answer "what did this look like at the time".
+//     Only genuine reference data (a coin's logo, a proposal's state, a user's
+//     watchlist) is mutable, and those rows are explicitly called out.
+//
+//  2. THE EVENT TABLE IS THE SPINE. Every connector normalises into `Event`.
+//     Domain-specific tables keep full fidelity and point back at their Event,
+//     so the timeline/search/alerts work against one shape while analytics
+//     still gets typed columns.
+//
+//  3. INDEXES FOLLOW THE ACCESS PATH, NOT THE COLUMN LIST. The timeline is
+//     keyset-paginated on (occurredAt DESC, id DESC) and almost always filtered
+//     by coin, so those composites exist explicitly. Millions of events make
+//     the difference between 5ms and 5s.
+//
+// pgvector is enabled by migration (see migrations/.../migration.sql). Prisma
+// has no native vector type, so embeddings use `Unsupported("vector(768)")`
+// and are read/written through raw SQL in EmbeddingRepository.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector, pg_trgm]
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reference data
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A data source. One row per connector, seeded from its descriptor.
+model Source {
+  id          String     @id @default(cuid())
+  key         String     @unique
+  name        String
+  kind        SourceKind
+  homepageUrl String?
+  /// Editorial trust on [0,1]; feeds importance scoring.
+  credibility Float      @default(0.5)
+  isEnabled   Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+
+  events              Event[]
+  marketSnapshots     MarketSnapshot[]
+  candles             OhlcvCandle[]
+  derivatives         DerivativesSnapshot[]
+  options             OptionsSnapshot[]
+  liquidations        Liquidation[]
+  trades              Trade[]
+  tradingPairs        TradingPair[]
+  exchangeListings    ExchangeListing[]
+  liquidityPools      LiquidityPool[]
+  newsArticles        NewsArticle[]
+  socialPosts         SocialPost[]
+  onchainEvents       OnchainEvent[]
+  onchainMetrics      OnchainMetric[]
+  githubActivity      GithubActivity[]
+  githubSnapshots     GithubRepoSnapshot[]
+  governanceProposals GovernanceProposal[]
+  tokenUnlocks        TokenUnlock[]
+  tokenomics          TokenomicsSnapshot[]
+
+  @@index([kind, isEnabled])
+}
+
+/// A tracked asset. Mutable reference data — metadata legitimately changes.
+model Coin {
+  id              String   @id @default(cuid())
+  slug            String   @unique
+  symbol          String
+  name            String
+  coingeckoId     String?  @unique
+  coinmarketcapId String?  @unique
+  chain           String?
+  imageUrl        String?
+  description     String?
+  websiteUrl      String?
+  /// `owner/repo` slugs polled by the GitHub connector.
+  githubRepos     String[] @default([])
+  twitterHandle   String?
+  subreddit       String?
+  /// Snapshot.org spaces polled by the governance connector.
+  snapshotSpaces  String[] @default([])
+  marketCapRank   Int?
+  /// Narrative buckets ("AI", "L2", "RWA") used by report generation.
+  categories      String[] @default([])
+  /// Extra names the coin matcher should recognise.
+  aliases         String[] @default([])
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  identifiers         CoinIdentifier[]
+  contracts           CoinContract[]
+  watchlistItems      WatchlistItem[]
+  portfolioHoldings   PortfolioHolding[]
+  coinTags            CoinTag[]
+  events              Event[]
+  marketSnapshots     MarketSnapshot[]
+  candles             OhlcvCandle[]
+  derivatives         DerivativesSnapshot[]
+  options             OptionsSnapshot[]
+  liquidations        Liquidation[]
+  trades              Trade[]
+  tradingPairs        TradingPair[]
+  exchangeListings    ExchangeListing[]
+  liquidityPools      LiquidityPool[]
+  socialMetrics       SocialMetric[]
+  onchainEvents       OnchainEvent[]
+  onchainMetrics      OnchainMetric[]
+  githubActivity      GithubActivity[]
+  githubSnapshots     GithubRepoSnapshot[]
+  governanceProposals GovernanceProposal[]
+  tokenUnlocks        TokenUnlock[]
+  tokenomics          TokenomicsSnapshot[]
+  reports             Report[]
+
+  /// Symbol is deliberately NOT unique: several real assets share a ticker.
+  @@index([symbol])
+  @@index([marketCapRank])
+  @@index([isActive, marketCapRank])
+}
+
+/// The many ways to name a coin. Separate table because one coin accrues several.
+model CoinIdentifier {
+  id     String         @id @default(cuid())
+  coinId String
+  kind   IdentifierKind
+  value  String
+  chain  String?
+
+  coin Coin @relation(fields: [coinId], references: [id], onDelete: Cascade)
+
+  /// One meaning per (kind, value, chain) — resolution must be unambiguous.
+  @@unique([kind, value, chain])
+  @@index([coinId])
+}
+
+/// A token deployment. A token may exist on many chains.
+model CoinContract {
+  id       String  @id @default(cuid())
+  coinId   String
+  chain    String
+  address  String
+  decimals Int?
+  /// True for the canonical deployment rather than a bridged copy.
+  isNative Boolean @default(false)
+
+  coin Coin @relation(fields: [coinId], references: [id], onDelete: Cascade)
+
+  @@unique([chain, address])
+  @@index([coinId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Users, watchlists, portfolios, tags
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Local-first single-tenant deployment: one seeded `local` user by default.
+/// The column exists everywhere it needs to so multi-user is an auth change,
+/// not a schema migration.
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+
+  watchlists Watchlist[]
+  portfolios Portfolio[]
+  tags       Tag[]
+  alerts     Alert[]
+}
+
+model Watchlist {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  description String?
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items WatchlistItem[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model WatchlistItem {
+  id          String   @id @default(cuid())
+  watchlistId String
+  coinId      String
+  /// Pinned coins sort first and are polled at the highest cadence.
+  isPinned    Boolean  @default(false)
+  position    Int      @default(0)
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  watchlist Watchlist @relation(fields: [watchlistId], references: [id], onDelete: Cascade)
+  coin      Coin      @relation(fields: [coinId], references: [id], onDelete: Cascade)
+
+  @@unique([watchlistId, coinId])
+  @@index([coinId])
+  @@index([watchlistId, isPinned, position])
+}
+
+model Portfolio {
+  id           String   @id @default(cuid())
+  userId       String
+  name         String
+  description  String?
+  baseCurrency String   @default("USD")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user     User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  holdings PortfolioHolding[]
+  reports  Report[]
+
+  @@unique([userId, name])
+}
+
+model PortfolioHolding {
+  id          String   @id @default(cuid())
+  portfolioId String
+  coinId      String
+  quantity    Float
+  costBasis   Float?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  coin      Coin      @relation(fields: [coinId], references: [id], onDelete: Cascade)
+
+  @@unique([portfolioId, coinId])
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  color     String   @default("#6366f1")
+  createdAt DateTime @default(now())
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  coinTags CoinTag[]
+
+  @@unique([userId, name])
+}
+
+model CoinTag {
+  tagId  String
+  coinId String
+
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  coin Coin @relation(fields: [coinId], references: [id], onDelete: Cascade)
+
+  @@id([tagId, coinId])
+  @@index([coinId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Events — the timeline spine
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Event {
+  id String @id @default(cuid())
+
+  /// When it happened upstream.
+  occurredAt DateTime
+  /// When our pipeline stored it. (ingestedAt - occurredAt) is the latency SLO.
+  ingestedAt DateTime @default(now())
+
+  coinId   String?
+  sourceId String
+  category EventCategory
+  /// Connector-specific refinement, e.g. `GITHUB_RELEASE`.
+  subtype  String?
+
+  headline String
+  body     String?
+  url      String?
+  author   String?
+
+  /// Stable content hash. Unique per source, making re-polling idempotent.
+  dedupeHash String
+  /// Shared by every event reporting the same underlying story.
+  clusterId  String?
+
+  // ── AI assessment (null until enrichment runs) ──
+  summary        String?
+  explanation    String?
+  sentiment      SentimentLabel?
+  sentimentScore Float?
+  importance     Int?
+  confidence     Int?
+  impact         ImpactLevel?
+  narratives     String[]        @default([])
+  isFud          Boolean         @default(false)
+  model          String?
+  enrichedAt     DateTime?
+
+  /// Verbatim connector payload. Audit only — never read by business logic.
+  payload        Json     @default("{}")
+  relatedCoinIds String[] @default([])
+
+  coin   Coin?  @relation(fields: [coinId], references: [id], onDelete: SetNull)
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  newsArticle        NewsArticle?
+  socialPost         SocialPost?
+  onchainEvent       OnchainEvent?
+  githubActivity     GithubActivity?
+  governanceProposal GovernanceProposal?
+  embedding          EventEmbedding?
+  alertTriggers      AlertTrigger[]
+
+  /// Idempotency guard: a connector re-polling its feed cannot double-insert.
+  @@unique([sourceId, dedupeHash])
+  /// Primary timeline read path: keyset pagination, newest first.
+  @@index([occurredAt(sort: Desc), id(sort: Desc)])
+  /// Per-coin timeline — the most common filtered view.
+  @@index([coinId, occurredAt(sort: Desc)])
+  @@index([category, occurredAt(sort: Desc)])
+  @@index([sourceId, occurredAt(sort: Desc)])
+  /// "Show me what matters" — importance-sorted feed.
+  @@index([importance(sort: Desc), occurredAt(sort: Desc)])
+  @@index([clusterId])
+  /// Enrichment queue: find unenriched events cheaply.
+  @@index([enrichedAt, occurredAt])
+  @@index([ingestedAt(sort: Desc)])
+}
+
+/// Event embeddings for semantic search.
+///
+/// Split from `Event` on purpose: the vector column is large, Prisma cannot
+/// select it natively, and keeping it out of the main table means timeline
+/// queries never pay for it.
+model EventEmbedding {
+  eventId   String                       @id
+  vector    Unsupported("vector(768)")
+  model     String
+  createdAt DateTime                     @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Market data (append-only)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model MarketSnapshot {
+  id         String   @id @default(cuid())
+  coinId     String
+  sourceId   String
+  observedAt DateTime
+
+  priceUsd          Float
+  marketCapUsd      Float?
+  fdvUsd            Float?
+  volume24hUsd      Float?
+  circulatingSupply Float?
+  totalSupply       Float?
+  maxSupply         Float?
+  liquidityUsd      Float?
+  priceChange1hPct  Float?
+  priceChange24hPct Float?
+  priceChange7dPct  Float?
+  priceChange30dPct Float?
+  marketCapRank     Int?
+  athUsd            Float?
+  atlUsd            Float?
+
+  coin   Coin   @relation(fields: [coinId], references: [id], onDelete: Cascade)
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  /// Latest-quote lookup and range scans both ride this composite.
+  @@index([coinId, observedAt(sort: Desc)])
+  @@index([observedAt])
+}
+
+model OhlcvCandle {
+  id       String         @id @default(cuid())
+  coinId   String
+  sourceId String
+  interval CandleInterval
+  /// Aligned to the interval boundary.
+  openTime DateTime
+
+  open        Float
+  high        Float
+  low         Float
+  close       Float
+  volume      Float
+  quoteVolume Float?
+  trades      Int?
+
+  coin   Coin   @relation(fields: [coinId], references: [id], onDelete: Cascade)
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  /// A candle is identified by its bucket; re-fetching an in-progress candle
+  /// updates it. This is the one time series that is legitimately mutable,
+  /// because a candle is an aggregate that closes rather than an observation.
+  @@unique([coinId, sourceId, interval, openTime])
+  @@index([coinId, interval, openTime(sort: Desc)])
+}
+
+model DerivativesSnapshot {
+  id         String   @id @default(cuid())
+  coinId     String
+  sourceId   String
+  observedAt DateTime
+  instrument String
+
+  fundingRate    Float?
+  nextFundingAt  DateTime?
+  openInterest   Float?
+  openInterestUsd Float?
+  markPrice      Float?
+  indexPrice     Float?
+  longShortRatio Float?
+  volume24hUsd   Float?
+
+  coin   Coin   @relation(fields: [coinId], references: [id], onDelete: Cascade)
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([coinId, observedAt(sort: Desc)])
+  @@index([coinId, instrument, observedAt(sort: Desc)])
+}
+
+model OptionsSnapshot {
+  id         String     @id @default(cuid())
+  coinId     String
+  sourceId   String
+  observedAt DateTime
+  expiry     DateTime
+  strike     Float
+  kind       OptionKind
+
+  openInterest       Float?
+  impliedVolatility  Float?
+  volume24h          Float?
+
+  coin   Coin   @relation(fields: [coinId], references: [id], onDelete: Cascade)
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([coinId, observedAt(sort: Desc)])
+  @@index([coinId, expiry])
+}
+
+model Liquidation {
+  id         String    @id @default(cuid())
+  coinId     String
+  sourceId   String
+  occurredAt DateTime
+  instrument String
+  side       PositionSide
+  quantity   Float
+  price      Float
+  valueUsd   Float
+
+  coin   Coin   @relation(fields: [coinId], references: [id], onDelete: Cascade)
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([coinId, occurredAt(sort: Desc)])
+  @@index([valueUsd(sort: Desc)])
+}
+
+model Trade {
+  id         String    @id @default(cuid())
+  coinId     String
+  sourceId   String
+  occurredAt DateTime
+  venue      String
+  venueKind  VenueKind
+  pair       String
+  side       TradeSide
+  price      Float
+  quantity   Float
+  valueUsd   Float
+  txHash     String?
+  trader     String?
+  chain      String?
+  /// Set at ingestion when the trade cleared the whale threshold.
+  isWhale    Boolean   @default(false)
+
+  coin   Coin   @relation(fields: [coinId], references: [id], onDelete: Cascade)
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([coinId, occurredAt(sort: Desc)])
+  /// Whale-feed query: large trades, newest first.
+  @@index([isWhale, valueUsd(sort: Desc), occurredAt(sort: Desc)])
+  @@index([txHash])
+}
+
+/// Known venue/pair. Mutable: volume and liveness change, but `firstSeenAt` is
+/// preserved because a pair *appearing* is itself the "new listing" signal.
+model TradingPair {
+  id           String    @id @default(cuid())
+  coinId       String
+  sourceId     String
+  venue        String
+  venueKind    VenueKind
+  base         String
+  quote        String
+  symbol       String
+  volume24hUsd Float?
+  spread       Float?
+  isActive     Boolean   @default(true)
+  firstSeenAt  DateTime  @default(now())
+  lastSeenAt   DateTime  @default(now())
+
+  coin   Coin   @relation(fields: [coinId], references: [id], onDelete: Cascade)
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([venue, symbol])
+  @@index([coinId, isActive])
+}
+
+model ExchangeListing {
+  id         String    @id @default(cuid())
+  coinId     String
+  sourceId   String
+  venue      String
+  venueKind  VenueKind
+  symbol     String
+  detectedAt DateTime
+  url        String?
+
+  coin   Coin   @relation(fields: [coinId], references: [id], onDelete: Cascade)
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([coinId, venue, symbol])
+  @@index([detectedAt(sort: Desc)])
+}
+
+model LiquidityPool {
+  id           String   @id @default(cuid())
+  coinId       String
+  sourceId     String
+  observedAt   DateTime
+  chain        String
+  dex          String
+  poolAddress  String
+  pairLabel    String
+  liquidityUsd Float
+  volume24hUsd Float?
+  priceUsd     Float?
+  buys24h      Int?
+  sells24h     Int?
+
+  coin   Coin   @relation(fields: [coinId], references: [id], onDelete: Cascade)
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([coinId, observedAt(sort: Desc)])
+  @@index([poolAddress, observedAt(sort: Desc)])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Editorial & social
+// ─────────────────────────────────────────────────────────────────────────────
+
+model NewsArticle {
+  id          String   @id @default(cuid())
+  eventId     String   @unique
+  sourceId    String
+  title       String
+  author      String?
+  publishedAt DateTime
+  url         String
+  excerpt     String?
+  content     String?
+  imageUrl    String?
+  language    String   @default("en")
+  tags        String[] @default([])
+  /// Coins the matcher found, primary subject first.
+  coinIds     String[] @default([])
+
+  event  Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([publishedAt(sort: Desc)])
+  @@index([url])
+}
+
+/// A social account. Mutable: follower counts and handles change.
+model SocialAuthor {
+  id                String         @id @default(cuid())
+  platform          SocialPlatform
+  /// Platform-native id, stable across handle changes.
+  externalId        String
+  handle            String
+  displayName       String?
+  role              AuthorRole     @default(ANONYMOUS)
+  isVerified        Boolean        @default(false)
+  followers         Int?
+  affiliatedCoinIds String[]       @default([])
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  posts SocialPost[]
+
+  @@unique([platform, externalId])
+  @@index([platform, handle])
+  @@index([role])
+}
+
+model SocialPost {
+  id              String         @id @default(cuid())
+  eventId         String         @unique
+  sourceId        String
+  platform        SocialPlatform
+  externalId      String
+  authorId        String?
+  authorHandle    String?
+  postedAt        DateTime
+  text            String
+  url             String?
+  likes           Int            @default(0)
+  reposts         Int            @default(0)
+  replies         Int            @default(0)
+  views           Int?
+  engagementScore Float?
+  hashtags        String[]       @default([])
+  coinIds         String[]       @default([])
+
+  event  Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  source Source        @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  author SocialAuthor? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@unique([platform, externalId])
+  @@index([postedAt(sort: Desc)])
+  @@index([authorId, postedAt(sort: Desc)])
+}
+
+/// Per-coin, per-platform rolling aggregate. Append-only.
+model SocialMetric {
+  id             String         @id @default(cuid())
+  coinId         String
+  platform       SocialPlatform
+  observedAt     DateTime
+  windowMinutes  Int
+  mentions       Int
+  uniqueAuthors  Int
+  totalEngagement Float
+  sentimentScore Float?
+  /// Mentions relative to the trailing baseline; 5 = a 5x spike.
+  velocity       Float?
+  trendingScore  Float?
+  topHashtags    String[]       @default([])
+
+  coin Coin @relation(fields: [coinId], references: [id], onDelete: Cascade)
+
+  @@index([coinId, platform, observedAt(sort: Desc)])
+  @@index([trendingScore(sort: Desc)])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// On-chain
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Labelled address. Mutable: labels improve as providers enrich them.
+model Wallet {
+  id         String      @id @default(cuid())
+  chain      String
+  address    String
+  label      WalletLabel @default(UNKNOWN)
+  entityName String?
+  coinIds    String[]    @default([])
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@unique([chain, address])
+  @@index([label])
+}
+
+model OnchainEvent {
+  id          String           @id @default(cuid())
+  eventId     String           @unique
+  coinId      String
+  sourceId    String
+  type        OnchainEventType
+  occurredAt  DateTime
+  chain       String
+  txHash      String?
+  blockNumber BigInt?
+  fromAddress String?
+  toAddress   String?
+  fromLabel   WalletLabel?
+  toLabel     WalletLabel?
+  amount      Float?
+  amountUsd   Float?
+  metadata    Json             @default("{}")
+
+  event  Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  coin   Coin   @relation(fields: [coinId], references: [id], onDelete: Cascade)
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([coinId, occurredAt(sort: Desc)])
+  /// Whale-flow aggregation path.
+  @@index([coinId, type, occurredAt(sort: Desc)])
+  @@index([amountUsd(sort: Desc)])
+  @@index([txHash])
+}
+
+/// Provider-computed analytics (Glassnode/Santiment/IntoTheBlock style).
+model OnchainMetric {
+  id         String   @id @default(cuid())
+  coinId     String
+  sourceId   String
+  observedAt DateTime
+  metric     String
+  value      Float
+  unit       String?
+
+  coin   Coin   @relation(fields: [coinId], references: [id], onDelete: Cascade)
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([coinId, sourceId, metric, observedAt])
+  @@index([coinId, metric, observedAt(sort: Desc)])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Development
+// ─────────────────────────────────────────────────────────────────────────────
+
+model GithubActivity {
+  id         String             @id @default(cuid())
+  eventId    String             @unique
+  coinId     String
+  sourceId   String
+  repo       String
+  type       GithubActivityType
+  occurredAt DateTime
+  /// Commit SHA / PR number / release tag, per `type`.
+  externalId String
+  title      String
+  author     String?
+  url        String?
+  additions  Int?
+  deletions  Int?
+
+  event  Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  coin   Coin   @relation(fields: [coinId], references: [id], onDelete: Cascade)
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([repo, type, externalId])
+  @@index([coinId, occurredAt(sort: Desc)])
+  @@index([repo, occurredAt(sort: Desc)])
+}
+
+model GithubRepoSnapshot {
+  id              String   @id @default(cuid())
+  coinId          String
+  sourceId        String
+  repo            String
+  observedAt      DateTime
+  stars           Int
+  forks           Int
+  openIssues      Int
+  watchers        Int?
+  commits30d      Int?
+  contributors30d Int?
+  activityScore   Float?
+
+  coin   Coin   @relation(fields: [coinId], references: [id], onDelete: Cascade)
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([coinId, observedAt(sort: Desc)])
+  @@index([repo, observedAt(sort: Desc)])
+  @@index([activityScore(sort: Desc)])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Governance & tokenomics
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Mutable by design: a proposal's state and vote tallies change over its life,
+/// and a state transition is what the governance alert fires on.
+model GovernanceProposal {
+  id         String        @id @default(cuid())
+  eventId    String        @unique
+  coinId     String
+  sourceId   String
+  space      String
+  externalId String
+  title      String
+  body       String?
+  author     String?
+  state      ProposalState
+  createdAt  DateTime
+  startsAt   DateTime?
+  endsAt     DateTime?
+  url        String?
+  choices    String[]      @default([])
+  /// Vote weight per choice, index-aligned with `choices`.
+  scores     Float[]       @default([])
+  totalVotes Int?
+  quorum     Float?
+  updatedAt  DateTime      @updatedAt
+
+  event  Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  coin   Coin   @relation(fields: [coinId], references: [id], onDelete: Cascade)
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([space, externalId])
+  @@index([coinId, createdAt(sort: Desc)])
+  @@index([state, endsAt])
+}
+
+/// Scheduled unlock. Upserted because schedules get revised.
+model TokenUnlock {
+  id                String   @id @default(cuid())
+  coinId            String
+  sourceId          String
+  unlockAt          DateTime
+  amount            Float
+  amountUsd         Float?
+  pctOfCirculating  Float?
+  category          String?
+  isCliff           Boolean  @default(false)
+  notes             String?
+  updatedAt         DateTime @updatedAt
+
+  coin   Coin   @relation(fields: [coinId], references: [id], onDelete: Cascade)
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([coinId, unlockAt, category])
+  @@index([unlockAt])
+}
+
+model TokenomicsSnapshot {
+  id             String   @id @default(cuid())
+  coinId         String
+  sourceId       String
+  observedAt     DateTime
+  inflationRate  Float?
+  emissions24h   Float?
+  burned24h      Float?
+  stakingApy     Float?
+  stakedSupply   Float?
+  stakedPct      Float?
+  validatorCount Int?
+  treasuryUsd    Float?
+  tvlUsd         Float?
+
+  coin   Coin   @relation(fields: [coinId], references: [id], onDelete: Cascade)
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([coinId, observedAt(sort: Desc)])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Alerts & notifications
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Alert {
+  id               String                @id @default(cuid())
+  userId           String
+  name             String
+  /// Discriminated-union rule, validated by alertRuleSchema in @cid/core.
+  rule             Json
+  channels         NotificationChannel[]
+  isEnabled        Boolean               @default(true)
+  cooldownSeconds  Int                   @default(300)
+  lastTriggeredAt  DateTime?
+  triggerCount     Int                   @default(0)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  triggers AlertTrigger[]
+
+  @@index([userId])
+  @@index([isEnabled])
+}
+
+model AlertTrigger {
+  id            String   @id @default(cuid())
+  alertId       String
+  eventId       String?
+  coinId        String?
+  triggeredAt   DateTime @default(now())
+  title         String
+  message       String
+  observedValue Float?
+  payload       Json     @default("{}")
+
+  alert      Alert                  @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  event      Event?                 @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  deliveries NotificationDelivery[]
+
+  @@index([alertId, triggeredAt(sort: Desc)])
+  @@index([triggeredAt(sort: Desc)])
+}
+
+model NotificationDelivery {
+  id        String              @id @default(cuid())
+  triggerId String
+  channel   NotificationChannel
+  status    DeliveryStatus      @default(PENDING)
+  attempts  Int                 @default(0)
+  error     String?
+  sentAt    DateTime?
+  createdAt DateTime            @default(now())
+
+  trigger AlertTrigger @relation(fields: [triggerId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([triggerId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reports & telemetry
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Report {
+  id            String     @id @default(cuid())
+  kind          ReportKind
+  title         String
+  /// Markdown. Rendered client-side, never as raw HTML.
+  body          String
+  periodStart   DateTime
+  periodEnd     DateTime
+  coinId        String?
+  portfolioId   String?
+  /// Events cited, so the UI can link back to the evidence.
+  citedEventIds String[]   @default([])
+  model         String?
+  metadata      Json       @default("{}")
+  createdAt     DateTime   @default(now())
+
+  coin      Coin?      @relation(fields: [coinId], references: [id], onDelete: SetNull)
+  portfolio Portfolio? @relation(fields: [portfolioId], references: [id], onDelete: SetNull)
+
+  @@index([kind, createdAt(sort: Desc)])
+  @@index([coinId, kind, createdAt(sort: Desc)])
+}
+
+/// Per-run connector telemetry. Powers /health, the status UI and the
+/// ingestion-latency SLO.
+model CollectorRun {
+  id            String    @id @default(cuid())
+  connectorKey  String
+  startedAt     DateTime
+  finishedAt    DateTime
+  status        RunStatus
+  itemsFetched  Int       @default(0)
+  itemsIngested Int       @default(0)
+  durationMs    Int
+  error         String?
+  coinIds       String[]  @default([])
+
+  @@index([connectorKey, startedAt(sort: Desc)])
+  @@index([startedAt(sort: Desc)])
+  @@index([status, startedAt(sort: Desc)])
+}
+
+/// High-water marks per connector, so a 60s poll fetches only what is new
+/// instead of re-downloading everything.
+model ConnectorState {
+  connectorKey String   @id
+  /// Most recent item timestamp successfully processed.
+  lastItemAt   DateTime?
+  lastRunAt    DateTime?
+  /// Opaque connector-managed cursor (ETag, page token, block height).
+  cursor       String?
+  updatedAt    DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum SourceKind {
+  MARKET_DATA
+  DERIVATIVES
+  DEX
+  NEWS
+  BLOG
+  SOCIAL
+  FORUM
+  VIDEO
+  ONCHAIN
+  ANALYTICS
+  CODE
+  GOVERNANCE
+  INTERNAL
+}
+
+enum IdentifierKind {
+  COINGECKO
+  COINMARKETCAP
+  SYMBOL
+  CONTRACT
+  SLUG
+  CHAIN_NATIVE
+}
+
+enum EventCategory {
+  PRICE_ACTION
+  MARKET_STRUCTURE
+  DERIVATIVES
+  LIQUIDATION
+  EXCHANGE_LISTING
+  NEWS
+  SOCIAL
+  ONCHAIN
+  WHALE
+  DEVELOPMENT
+  GOVERNANCE
+  TOKENOMICS
+  SECURITY
+  REGULATORY
+  PARTNERSHIP
+  MACRO
+  OTHER
+}
+
+enum SentimentLabel {
+  VERY_BEARISH
+  BEARISH
+  NEUTRAL
+  BULLISH
+  VERY_BULLISH
+}
+
+enum ImpactLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum CandleInterval {
+  ONE_MINUTE
+  FIVE_MINUTES
+  FIFTEEN_MINUTES
+  ONE_HOUR
+  FOUR_HOURS
+  ONE_DAY
+  ONE_WEEK
+}
+
+enum OptionKind {
+  CALL
+  PUT
+}
+
+enum PositionSide {
+  LONG
+  SHORT
+}
+
+enum TradeSide {
+  BUY
+  SELL
+}
+
+enum VenueKind {
+  CEX
+  DEX
+}
+
+enum SocialPlatform {
+  X
+  REDDIT
+  TELEGRAM
+  DISCORD
+  FARCASTER
+  LENS
+  YOUTUBE
+  TIKTOK
+  GITHUB
+}
+
+enum AuthorRole {
+  FOUNDER
+  CORE_DEV
+  TEAM
+  COMMUNITY_MANAGER
+  INFLUENCER
+  EXCHANGE
+  MEDIA
+  ANONYMOUS
+}
+
+enum WalletLabel {
+  EXCHANGE
+  TREASURY
+  FOUNDATION
+  TEAM
+  WHALE
+  BRIDGE
+  CONTRACT
+  BURN
+  STAKING
+  MARKET_MAKER
+  UNKNOWN
+}
+
+enum OnchainEventType {
+  WHALE_TRANSFER
+  EXCHANGE_INFLOW
+  EXCHANGE_OUTFLOW
+  TREASURY_MOVEMENT
+  FOUNDATION_MOVEMENT
+  TOKEN_UNLOCK
+  BRIDGE_TRANSFER
+  STAKE
+  UNSTAKE
+  BURN
+  MINT
+  CONTRACT_UPGRADE
+  CONTRACT_DEPLOY
+  GOVERNANCE_ACTION
+  LIQUIDITY_ADD
+  LIQUIDITY_REMOVE
+}
+
+enum GithubActivityType {
+  COMMIT
+  RELEASE
+  PULL_REQUEST
+  ISSUE
+  FORK
+  STAR_MILESTONE
+}
+
+enum ProposalState {
+  PENDING
+  ACTIVE
+  PASSED
+  FAILED
+  QUEUED
+  EXECUTED
+  CANCELLED
+  EXPIRED
+}
+
+enum NotificationChannel {
+  DESKTOP
+  DISCORD
+  TELEGRAM
+  EMAIL
+  WEBHOOK
+}
+
+enum DeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  SUPPRESSED
+}
+
+enum ReportKind {
+  HOURLY
+  MORNING
+  DAILY
+  WEEKLY
+  MONTHLY
+  PORTFOLIO
+  NARRATIVE
+  ON_DEMAND
+}
+
+enum RunStatus {
+  SUCCESS
+  PARTIAL
+  FAILED
+  SKIPPED
+}

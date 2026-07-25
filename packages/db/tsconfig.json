@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "noEmit": true,
+    "paths": {
+      "@cid/core": ["../core/src/index.ts"],
+      "@cid/platform": ["../platform/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "prisma/*.ts", "tests/**/*.ts"]
+}

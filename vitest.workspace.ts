@@ -30,8 +30,15 @@ export default defineWorkspace([
       exclude: ['**/node_modules/**', '**/dist/**'],
       testTimeout: 30_000,
       hookTimeout: 60_000,
-      // Integration tests share one database; running files in parallel would
-      // have them truncating each other's fixtures.
+      // Integration tests share one database and truncate it between cases, so
+      // two files running concurrently tear out each other's fixtures.
+      //
+      // `singleFork` is what actually enforces this: a project-level
+      // `fileParallelism: false` is ignored by the runner (verified — the files
+      // pass individually and fail together), whereas a single fork genuinely
+      // executes every file sequentially in one process.
+      pool: 'forks',
+      poolOptions: { forks: { singleFork: true } },
       fileParallelism: false,
     },
   },
