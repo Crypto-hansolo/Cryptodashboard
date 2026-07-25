@@ -57,7 +57,7 @@ implemented by hand (ADR-004). Adapters live in `@cid/db`, `@cid/platform`,
 route handlers. Less code, and fine until the worker needs the same logic — at
 which point either the logic is duplicated or the worker imports the Next app.
 
-**Consequences.** 413 of 529 tests need no infrastructure at all: they run
+**Consequences.** 765 of 882 tests need no infrastructure at all: they run
 against fakes because the domain only knows ports. Swapping Postgres, or adding a
 second LLM backend, touches one adapter. The cost is indirection — a new
 persisted field means editing a domain type, a port, a mapper, a repository and a

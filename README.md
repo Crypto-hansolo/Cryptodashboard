@@ -136,9 +136,9 @@ BullMQ for polling, why HNSW over IVFFlat, why the LLM does not own the scores).
 ## Testing
 
 ```bash
-npm test                  # 413 unit tests, hermetic — no network, no database
+npm test                  # 765 unit tests, hermetic — no network, no database
 npm run test:integration  # 101 tests against real Postgres + pgvector
-npm run test:e2e          # 15 Playwright tests against a production build
+npm run test:e2e          # 16 Playwright tests against a production build
 npm run verify            # format + lint + typecheck + unit
 ```
 
@@ -175,7 +175,7 @@ Keys are all optional. Adding them widens coverage:
 ## Status and limitations
 
 Built and verified end to end: the worker boots and schedules 20 connectors, the
-web app builds and serves live data, and 529 tests pass across three suites.
+web app builds and serves live data, and 882 tests pass across three suites.
 
 Things to know before relying on it:
 

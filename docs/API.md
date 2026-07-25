@@ -55,25 +55,25 @@ and **deny when the token is unset** rather than allowing.
 The continuously-updating event feed. This is the endpoint the dashboard lives
 on.
 
-| Parameter       | Type           | Default | Notes                                                                                                                                            |
-| --------------- | -------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `coinIds`       | list           | —       | Restrict to these coins                                                                                                                          |
-| `categories`    | list           | —       | `MARKET`, `NEWS`, `SOCIAL`, `ONCHAIN`, `DEV`, `GOVERNANCE`, `TOKENOMICS`, `LISTING`, `SECURITY`, `REGULATORY`, `PARTNERSHIP`, `PRODUCT`, `OTHER` |
-| `sourceKeys`    | list           | —       | Connector keys, e.g. `coindesk`, `github`                                                                                                        |
-| `sentiments`    | list           | —       | `VERY_BULLISH`, `BULLISH`, `NEUTRAL`, `BEARISH`, `VERY_BEARISH`                                                                                  |
-| `impacts`       | list           | —       | `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`                                                                                                              |
-| `minImportance` | int 1–100      | —       | Importance floor                                                                                                                                 |
-| `from`, `to`    | ISO date       | —       | Occurrence window                                                                                                                                |
-| `q`             | string 1–200   | —       | Full-text filter on headline and body                                                                                                            |
-| `collapse`      | `true`/`false` | `true`  | Collapse duplicate clusters                                                                                                                      |
-| `limit`         | int 1–200      | `50`    |                                                                                                                                                  |
-| `cursor`        | string         | —       | From `nextCursor`                                                                                                                                |
+| Parameter       | Type           | Default | Notes                                                                                                                                                                                                                            |
+| --------------- | -------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `coinIds`       | list           | —       | Restrict to these coins                                                                                                                                                                                                          |
+| `categories`    | list           | —       | `PRICE_ACTION`, `MARKET_STRUCTURE`, `DERIVATIVES`, `LIQUIDATION`, `EXCHANGE_LISTING`, `NEWS`, `SOCIAL`, `ONCHAIN`, `WHALE`, `DEVELOPMENT`, `GOVERNANCE`, `TOKENOMICS`, `SECURITY`, `REGULATORY`, `PARTNERSHIP`, `MACRO`, `OTHER` |
+| `sourceKeys`    | list           | —       | Connector keys, e.g. `coindesk`, `github`                                                                                                                                                                                        |
+| `sentiments`    | list           | —       | `VERY_BULLISH`, `BULLISH`, `NEUTRAL`, `BEARISH`, `VERY_BEARISH`                                                                                                                                                                  |
+| `impacts`       | list           | —       | `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`                                                                                                                                                                                              |
+| `minImportance` | int 1–100      | —       | Importance floor                                                                                                                                                                                                                 |
+| `from`, `to`    | ISO date       | —       | Occurrence window                                                                                                                                                                                                                |
+| `q`             | string 1–200   | —       | Full-text filter on headline and body                                                                                                                                                                                            |
+| `collapse`      | `true`/`false` | `true`  | Collapse duplicate clusters                                                                                                                                                                                                      |
+| `limit`         | int 1–200      | `50`    |                                                                                                                                                                                                                                  |
+| `cursor`        | string         | —       | From `nextCursor`                                                                                                                                                                                                                |
 
 Unknown enum members are a 400, not a silently empty result — a hand-edited URL
 should tell you it is wrong.
 
 ```bash
-curl -s 'localhost:3000/api/timeline?minImportance=70&categories=LISTING,SECURITY&limit=2' | jq
+curl -s 'localhost:3000/api/timeline?minImportance=70&categories=EXCHANGE_LISTING,SECURITY&limit=2' | jq
 ```
 
 ```json
@@ -83,7 +83,7 @@ curl -s 'localhost:3000/api/timeline?minImportance=70&categories=LISTING,SECURIT
       "id": "clx8f2k1p0001",
       "occurredAt": "2026-07-25T09:14:00.000Z",
       "ingestedAt": "2026-07-25T09:14:38.412Z",
-      "category": "LISTING",
+      "category": "EXCHANGE_LISTING",
       "subtype": "spot_listing",
       "headline": "Binance lists Cronos (CRO) for spot trading",
       "summary": "Binance will open CRO/USDT and CRO/BTC spot markets on 26 July…",
@@ -428,7 +428,7 @@ stream.addEventListener('quote', (e) => console.log(JSON.parse(e.data)));
 The heartbeat exists so intermediary proxies do not close an idle connection and
 so the client can distinguish "quiet" from "dead". The server sends
 `retry: 3000`, so reconnection backoff is server-controlled. See
-[ADR-012](DECISIONS.md#adr-012--sse-not-websockets) for why this is not a
+[ADR-012](DECISIONS.md#adr-012--sse-not-websockets-departure) for why this is not a
 WebSocket.
 
 ## GET /api/alerts
@@ -466,24 +466,26 @@ cannot persist a rule the worker would reject.
 
 ### Rule types
 
-| `type`                | Key fields                                           |
-| --------------------- | ---------------------------------------------------- |
-| `PRICE_CHANGE`        | `windowMinutes`, `minChangePct`, `direction`         |
-| `PRICE_LEVEL`         | `comparator`, `priceUsd`                             |
-| `VOLUME_SPIKE`        | `minMultiple` versus trailing baseline               |
-| `EVENT_MATCH`         | `categories`, `minImportance`, `keywords`            |
-| `EXCHANGE_LISTING`    | `exchanges`, `venueKinds`                            |
-| `GITHUB_RELEASE`      | `repos`                                              |
-| `WHALE_TRANSFER`      | `minUsd`, `direction`                                |
-| `TOKEN_UNLOCK`        | `withinHours`, `minPctOfSupply`                      |
-| `GOVERNANCE_PROPOSAL` | `states`                                             |
-| `SENTIMENT_SHIFT`     | `minDelta` on [-1,1], `direction`                    |
-| `FUNDING_RATE`        | `comparator`, `threshold` (fraction, `0.001` = 10bp) |
-| `SOCIAL_VELOCITY`     | `platforms`, `minVelocity` (`5` = a 5× spike)        |
-| `AUTHOR_POST`         | `handles`, `verifiedOnly`                            |
-| `BREAKING_NEWS`       | `minImportance`                                      |
+| `type`                | Key fields                                                                                   |
+| --------------------- | -------------------------------------------------------------------------------------------- |
+| `PRICE_CHANGE`        | `windowMinutes` (default 60), `thresholdPct`, `direction` (`UP`/`DOWN`/`ANY`)                |
+| `PRICE_LEVEL`         | `comparator` (`ABOVE`/`BELOW`), `price`                                                      |
+| `VOLUME_SPIKE`        | `multiplier` versus trailing baseline (default 3)                                            |
+| `EVENT_MATCH`         | `categories`, `subtypes`, `sourceKeys`, `sentiments`, `impacts`, `minImportance`, `keywords` |
+| `EXCHANGE_LISTING`    | `venues` (empty = any venue)                                                                 |
+| `GITHUB_RELEASE`      | `repos`                                                                                      |
+| `WHALE_TRANSFER`      | `minUsd` (default 1,000,000), `types`                                                        |
+| `TOKEN_UNLOCK`        | `leadTimeHours` (default 24), `minPctOfCirculating` (fraction, default 0.005)                |
+| `GOVERNANCE_PROPOSAL` | `states` (default `["ACTIVE"]`)                                                              |
+| `SENTIMENT_SHIFT`     | `minDelta` on [-1,1] (default 0.4), `direction`                                              |
+| `FUNDING_RATE`        | `comparator`, `threshold` (fraction, `0.001` = 10bp)                                         |
+| `SOCIAL_VELOCITY`     | `platforms`, `minVelocity` (`5` = a 5× spike, default 4)                                     |
+| `AUTHOR_POST`         | `handles` (no leading `@`), `verifiedOnly`                                                   |
+| `BREAKING_NEWS`       | `minImportance` (default 75)                                                                 |
 
-All accept `coinIds` to scope them; omit it to match every tracked coin.
+Every rule accepts `coinIds`; an empty array (the default) matches every tracked
+coin. Optional fields have the defaults shown, so the minimum body for a price
+alert is `{ "type": "PRICE_CHANGE", "thresholdPct": 5 }`.
 `cooldownSeconds` (default 300) is claimed atomically, so a volatile minute
 produces one notification rather than forty.
 
@@ -498,11 +500,11 @@ produces one notification rather than forty.
 
 ## GET /api/reports
 
-| Parameter | Type                                                               | Default | Notes                              |
-| --------- | ------------------------------------------------------------------ | ------- | ---------------------------------- |
-| `kind`    | `HOURLY`\|`MORNING`\|`WEEKLY`\|`MONTHLY`\|`PORTFOLIO`\|`NARRATIVE` | —       |                                    |
-| `id`      | string                                                             | —       | Fetch one report **with** its body |
-| `limit`   | int 1–50                                                           | `20`    |                                    |
+| Parameter | Type                                                                                     | Default | Notes                              |
+| --------- | ---------------------------------------------------------------------------------------- | ------- | ---------------------------------- |
+| `kind`    | `HOURLY`\|`MORNING`\|`DAILY`\|`WEEKLY`\|`MONTHLY`\|`PORTFOLIO`\|`NARRATIVE`\|`ON_DEMAND` | —       |                                    |
+| `id`      | string                                                                                   | —       | Fetch one report **with** its body |
+| `limit`   | int 1–50                                                                                 | `20`    |                                    |
 
 The list view omits bodies — they are multi-kilobyte Markdown and a list only
 needs headers. Pass `?id=` for the full text.
