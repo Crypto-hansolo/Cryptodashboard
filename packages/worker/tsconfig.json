@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "noEmit": true,
+    "paths": {
+      "@cid/core": ["../core/src/index.ts"],
+      "@cid/platform": ["../platform/src/index.ts"],
+      "@cid/db": ["../db/src/index.ts"],
+      "@cid/connectors": ["../connectors/src/index.ts"],
+      "@cid/ai": ["../ai/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}

@@ -16,11 +16,11 @@
     "@cid/core": "*",
     "@cid/db": "*",
     "@cid/platform": "*",
-    "bullmq": "^5.81.2",
     "croner": "^10.0.1",
     "ioredis": "^5.11.1",
     "nodemailer": "^9.0.3",
-    "zod": "^3.25.76"
+    "zod": "^3.25.76",
+    "dotenv": "^17.4.2"
   },
   "devDependencies": {
     "@types/nodemailer": "^8.0.1",
