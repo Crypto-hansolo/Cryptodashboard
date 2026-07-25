@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { UpstreamError, type Report, type ReportInputs } from '@cid/core';
 import { ReportGenerator, renderDeterministicReport } from './reports.js';
-import { FakeLlmClient, fakeRepositories } from './testing.js';
+import { fakeRepositories } from '@cid/platform/testing';
+import { FakeLlmClient } from './testing.js';
 
 /**
  * A report has two halves, and the split is the design: the tables are the

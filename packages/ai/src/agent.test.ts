@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { UpstreamError, type Event, type Repositories, type Source } from '@cid/core';
 import { ResearchAgent } from './agent.js';
-import { FakeEmbeddingClient, FakeLlmClient, fakeRepositories } from './testing.js';
+import { fakeRepositories } from '@cid/platform/testing';
+import { FakeEmbeddingClient, FakeLlmClient } from './testing.js';
 
 /**
  * The agent's contract is "answer from the database, or say you cannot".

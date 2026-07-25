@@ -216,6 +216,37 @@ test.describe('api', () => {
     expect(body.price.length).toBeGreaterThan(0);
   });
 
+  test('rate limits a client that exceeds the budget, and exempts health', async ({ request }) => {
+    /*
+     * The limiter buckets per client, keyed on the forwarded address, so this
+     * test claims its own bucket rather than spending the one every other test in
+     * this file shares. Without that, whichever test ran next would start seeing
+     * 429s.
+     */
+    const headers = { 'x-forwarded-for': '203.0.113.7' };
+    const budget = 300; // RATE_LIMIT_RPM default
+
+    const responses = await Promise.all(
+      Array.from({ length: budget + 20 }, () =>
+        request.get('/api/quotes?coinIds=no-such-coin', { headers }),
+      ),
+    );
+
+    const limited = responses.filter((response) => response.status() === 429);
+    expect(limited.length).toBeGreaterThan(0);
+
+    const body = (await limited[0]!.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('RATE_LIMITED');
+    expect(body.error.message).toContain('requests/minute');
+
+    // A monitor must never be throttled: losing visibility during a traffic spike
+    // is precisely when it is needed.
+    const health = await request.get('/api/health', { headers });
+    expect(health.status()).toBe(200);
+    const metrics = await request.get('/api/metrics', { headers });
+    expect(metrics.status()).toBe(200);
+  });
+
   test('ask returns an evidence-grounded answer without a model', async ({ request }) => {
     const response = await request.post('/api/ask', {
       data: { question: 'What happened with Binance?', stream: false },

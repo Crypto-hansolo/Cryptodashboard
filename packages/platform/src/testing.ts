@@ -7,6 +7,7 @@ import {
   type HttpClient,
   type HttpRequest,
   type HttpResponse,
+  type Repositories,
   type Result,
 } from '@cid/core';
 
@@ -138,6 +139,19 @@ export interface RecordedRequest {
   fullUrl: string;
 }
 
+/** Serialise a query object the way the real client does, skipping absent values. */
+function appendQuery(url: string, query: HttpRequest['query']): string {
+  if (!query) return url;
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null) continue;
+    params.set(key, String(value));
+  }
+  const serialised = params.toString();
+  if (serialised === '') return url;
+  return `${url}${url.includes('?') ? '&' : '?'}${serialised}`;
+}
+
 /**
  * An `HttpClient` that answers from a script instead of the network.
  *
@@ -152,19 +166,6 @@ export interface RecordedRequest {
  * can assert on what was actually asked for (which coins, which cursor, whether
  * a key was attached).
  */
-/** Serialise a query object the way the real client does, skipping absent values. */
-function appendQuery(url: string, query: HttpRequest['query']): string {
-  if (!query) return url;
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(query)) {
-    if (value === undefined || value === null) continue;
-    params.set(key, String(value));
-  }
-  const serialised = params.toString();
-  if (serialised === '') return url;
-  return `${url}${url.includes('?') ? '&' : '?'}${serialised}`;
-}
-
 export class FakeHttpClient implements HttpClient {
   readonly requests: RecordedRequest[] = [];
   readonly #routes: StubRoute[];
@@ -244,3 +245,50 @@ export class FakeHttpClient implements HttpClient {
     return this.requests[this.requests.length - 1];
   }
 }
+
+// ─── Fake repositories ───────────────────────────────────────────────────────
+
+/**
+ * A `Repositories` aggregate with only the methods a test actually needs.
+ *
+ * The port aggregate is thirteen repositories wide, and the agent touches five
+ * methods across four of them. Implementing the rest as no-ops would be pages of
+ * noise that also quietly hides a call the code should not be making — so
+ * anything unstubbed throws with the path it tried to reach.
+ *
+ * Repository *names* are checked (a typo fails to compile); method names and
+ * signatures are not. That is the deliberate trade: a stub returning a whole
+ * `Coin` or `MarketQuote` per call would be a fixture file, not a test, and these
+ * assertions are about which methods get called and with what.
+ */
+export function fakeRepositories(overrides: RepositoryStubs): Repositories {
+  const groups = new Map<string, Record<string, unknown>>(
+    Object.entries(overrides as Record<string, Record<string, unknown>>),
+  );
+
+  return new Proxy({} as Repositories, {
+    get(_target, repositoryName: string) {
+      const group = groups.get(repositoryName) ?? {};
+      return new Proxy(group, {
+        get(methods, methodName: string) {
+          const stub = (methods as Record<string, unknown>)[methodName];
+          if (typeof stub === 'function') return stub;
+          if (stub !== undefined) return stub;
+          return () => {
+            throw new Error(
+              `fakeRepositories: ${repositoryName}.${methodName}() was called but not stubbed`,
+            );
+          };
+        },
+      });
+    },
+  });
+}
+
+/**
+ * Stub map: known repository names, loosely-typed method bags. Also allows
+ * methods the concrete adapter adds beyond its port (`search.hybridSearch`).
+ */
+export type RepositoryStubs = {
+  [K in keyof Repositories]?: Record<string, unknown>;
+};
