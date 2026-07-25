@@ -19,12 +19,31 @@ export default defineConfig({
         'packages/core/src/ports/**',
         'packages/db/src/generated/**',
         'packages/worker/src/main.ts',
+        // Test-support code. Covered incidentally by whatever uses it, and its own
+        // coverage number means nothing.
+        'packages/*/src/testing.ts',
+        'packages/connectors/src/connector-fixtures.ts',
       ],
+      /*
+       * Thresholds for the *unit* suite only — coverage is not collected for the
+       * integration run.
+       *
+       * That matters when reading the numbers: `@cid/db` reports 0% here while
+       * being the most thoroughly tested package in the repo, because its
+       * contract is SQL behaviour (generated tsvector columns, HNSW ordering,
+       * `DISTINCT ON`, cursor stability) and 101 integration tests exercise it
+       * against real Postgres. Mocking Prisma to raise this number would test the
+       * mock. It is deliberately left in the denominator rather than excluded, so
+       * the global figure stays honest about what the fast suite proves.
+       *
+       * Set just below the current numbers: high enough that deleting tests
+       * fails, low enough that adding an adapter does not.
+       */
       thresholds: {
-        statements: 55,
-        branches: 70,
-        functions: 60,
-        lines: 55,
+        statements: 62,
+        branches: 80,
+        functions: 80,
+        lines: 62,
       },
     },
   },

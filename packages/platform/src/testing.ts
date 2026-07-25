@@ -133,6 +133,9 @@ export interface RecordedRequest {
   method: string;
   body: unknown;
   headers: Record<string, string> | undefined;
+  query: HttpRequest['query'];
+  /** URL with the query string appended, as the real client would build it. */
+  fullUrl: string;
 }
 
 /**
@@ -149,6 +152,19 @@ export interface RecordedRequest {
  * can assert on what was actually asked for (which coins, which cursor, whether
  * a key was attached).
  */
+/** Serialise a query object the way the real client does, skipping absent values. */
+function appendQuery(url: string, query: HttpRequest['query']): string {
+  if (!query) return url;
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null) continue;
+    params.set(key, String(value));
+  }
+  const serialised = params.toString();
+  if (serialised === '') return url;
+  return `${url}${url.includes('?') ? '&' : '?'}${serialised}`;
+}
+
 export class FakeHttpClient implements HttpClient {
   readonly requests: RecordedRequest[] = [];
   readonly #routes: StubRoute[];
@@ -172,14 +188,20 @@ export class FakeHttpClient implements HttpClient {
   }
 
   async request<T>(request: HttpRequest): Promise<Result<HttpResponse<T>, DomainError>> {
+    const fullUrl = appendQuery(request.url, request.query);
     this.requests.push({
       url: request.url,
       method: request.method ?? 'GET',
       body: request.body,
       headers: request.headers,
+      query: request.query,
+      fullUrl,
     });
 
-    const route = this.#resolve(request.url);
+    // Match against the full URL: connectors put the interesting parameters
+    // (symbol, address, cursor) in the query, so a route often needs to
+    // distinguish two calls to the same path.
+    const route = this.#resolve(fullUrl);
     if (!route) {
       // An unrouted URL is a test-authoring mistake, not a provider failure, so
       // it must be loud rather than a plausible-looking empty result.
@@ -212,9 +234,9 @@ export class FakeHttpClient implements HttpClient {
     return response.ok ? ok(String(response.value.data)) : err(response.error);
   }
 
-  /** Every URL requested, in order. */
+  /** Every URL requested, query included, in order. */
   get urls(): string[] {
-    return this.requests.map((request) => request.url);
+    return this.requests.map((request) => request.fullUrl);
   }
 
   /** The last request, for asserting on the outgoing payload. */

@@ -269,31 +269,45 @@ export interface CollectionResult {
 }
 
 /**
+ * A collected record: a flat, JSON-shaped row produced by a connector and mapped
+ * to a table by the ingestion service.
+ *
+ * Not the domain type for each table, deliberately. A connector reports what the
+ * provider gave it — often with fields absent or in provider units — and the
+ * ingestion service is what resolves that into a persistable row. Typing these
+ * as the final domain types would force every connector to invent values for
+ * fields it cannot know. `Record<string, unknown>` still beats the `unknown[]`
+ * this used to be: the shape is at least known to be a keyed row, so tests and
+ * mappers can index it without casting.
+ */
+export type CollectedRow = Record<string, unknown>;
+
+/**
  * Typed side-channel for records that are not themselves timeline events
  * (a price tick is data; it only becomes an event when something notable
  * happens). Kept as a plain object so connectors can populate only what they know.
  */
 export interface CollectedRecords {
-  marketSnapshots?: unknown[];
-  candles?: unknown[];
-  derivatives?: unknown[];
-  options?: unknown[];
-  liquidations?: unknown[];
-  trades?: unknown[];
-  tradingPairs?: unknown[];
-  liquidityPools?: unknown[];
-  news?: unknown[];
-  socialPosts?: unknown[];
-  socialMetrics?: unknown[];
-  onchainEvents?: unknown[];
-  onchainMetrics?: unknown[];
-  githubActivity?: unknown[];
-  githubSnapshots?: unknown[];
-  proposals?: unknown[];
-  unlocks?: unknown[];
-  tokenomics?: unknown[];
-  wallets?: unknown[];
-  socialAuthors?: unknown[];
+  marketSnapshots?: CollectedRow[];
+  candles?: CollectedRow[];
+  derivatives?: CollectedRow[];
+  options?: CollectedRow[];
+  liquidations?: CollectedRow[];
+  trades?: CollectedRow[];
+  tradingPairs?: CollectedRow[];
+  liquidityPools?: CollectedRow[];
+  news?: CollectedRow[];
+  socialPosts?: CollectedRow[];
+  socialMetrics?: CollectedRow[];
+  onchainEvents?: CollectedRow[];
+  onchainMetrics?: CollectedRow[];
+  githubActivity?: CollectedRow[];
+  githubSnapshots?: CollectedRow[];
+  proposals?: CollectedRow[];
+  unlocks?: CollectedRow[];
+  tokenomics?: CollectedRow[];
+  wallets?: CollectedRow[];
+  socialAuthors?: CollectedRow[];
 }
 
 export interface ConnectorRunSummary {
