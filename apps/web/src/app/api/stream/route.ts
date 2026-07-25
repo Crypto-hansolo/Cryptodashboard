@@ -1,4 +1,5 @@
 import { CHANNELS } from '@cid/platform';
+import { rateLimitGuard } from '@/server/api';
 import { getServices } from '@/server/container';
 
 /**
@@ -16,6 +17,11 @@ import { getServices } from '@/server/container';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request): Promise<Response> {
+  // A client stuck in a reconnect loop would otherwise open a Redis subscription
+  // per attempt, so the stream is limited like any other endpoint.
+  const limited = await rateLimitGuard(request);
+  if (limited) return limited;
+
   const { realtime, logger } = getServices();
   const encoder = new TextEncoder();
 
@@ -27,9 +33,7 @@ export async function GET(request: Request): Promise<Response> {
       const send = (event: string, data: unknown): void => {
         if (closed) return;
         try {
-          controller.enqueue(
-            encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
-          );
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
         } catch {
           // The client vanished between the closed check and the enqueue.
           closed = true;
@@ -41,7 +45,12 @@ export async function GET(request: Request): Promise<Response> {
       controller.enqueue(encoder.encode('retry: 3000\n\n'));
       send('ready', { at: new Date().toISOString() });
 
-      for (const channel of [CHANNELS.events, CHANNELS.quotes, CHANNELS.alerts, CHANNELS.connectors]) {
+      for (const channel of [
+        CHANNELS.events,
+        CHANNELS.quotes,
+        CHANNELS.alerts,
+        CHANNELS.connectors,
+      ]) {
         try {
           const unsubscribe = await realtime.subscribe(channel, (message) => {
             send(message.type, message.payload);

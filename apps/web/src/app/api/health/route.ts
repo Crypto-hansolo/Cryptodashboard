@@ -72,7 +72,9 @@ export function GET() {
       ]);
       ingestion = {
         connectors: health.length,
-        failing: health.filter((entry) => entry.lastStatus === 'FAILED').map((entry) => entry.connectorKey),
+        failing: health
+          .filter((entry) => entry.lastStatus === 'FAILED')
+          .map((entry) => entry.connectorKey),
         lagP50Ms: lag?.p50Ms ?? null,
         lagP95Ms: lag?.p95Ms ?? null,
       };

@@ -155,7 +155,9 @@ export function useDesktopNotifications(): {
   notify: (alert: LiveAlertPayload) => void;
 } {
   const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(
-    typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported',
+    typeof window !== 'undefined' && 'Notification' in window
+      ? Notification.permission
+      : 'unsupported',
   );
 
   const request = async (): Promise<void> => {

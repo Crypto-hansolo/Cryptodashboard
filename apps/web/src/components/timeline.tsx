@@ -125,7 +125,9 @@ export function Timeline({
             ))}
           </div>
 
-          {(filters.categories.length > 0 || filters.query !== '' || filters.coinIds.length > 0) && (
+          {(filters.categories.length > 0 ||
+            filters.query !== '' ||
+            filters.coinIds.length > 0) && (
             <button
               type="button"
               className="btn btn-ghost px-2 py-1 text-2xs"
@@ -268,7 +270,9 @@ function TimelineRow({
 
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             {category && <span className={cn('chip', category.className)}>{category.label}</span>}
-            {sentiment && <span className={cn('chip', sentiment.className)}>{sentiment.label}</span>}
+            {sentiment && (
+              <span className={cn('chip', sentiment.className)}>{sentiment.label}</span>
+            )}
             {impact && item.impact !== 'LOW' && (
               <span className={cn('chip', impact.className)}>{impact.label}</span>
             )}

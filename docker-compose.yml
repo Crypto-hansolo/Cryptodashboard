@@ -1,0 +1,165 @@
+# Crypto Intelligence Dashboard — full stack.
+#
+#   docker compose up -d          # everything
+#   docker compose up -d postgres redis   # just the datastores, for local dev
+#
+# The `ollama` service is in the `ai` profile so the stack starts without
+# downloading several GB of model weights:
+#   docker compose --profile ai up -d
+#
+# Postgres uses the pgvector image because semantic search needs the extension;
+# a plain `postgres:16` image will fail the initial migration.
+
+name: cid
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cid}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cid}
+      POSTGRES_DB: ${POSTGRES_DB:-cid}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # Depends on this being genuinely ready: the worker's first action is a
+      # write, and a "starting" Postgres accepts the connection then fails it.
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${POSTGRES_USER:-cid} -d ${POSTGRES_DB:-cid}',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # `--save ''` disables RDB snapshots: everything in Redis here is a cache,
+    # a rate-limit bucket or a pub/sub channel, all of which are reconstructible.
+    command:
+      [
+        'redis-server',
+        '--save',
+        '',
+        '--appendonly',
+        'no',
+        '--maxmemory-policy',
+        'allkeys-lru',
+      ]
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # One-shot migration runner. Both app services wait for it to complete, so
+  # neither ever starts against an un-migrated schema.
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: runtime
+    restart: 'no'
+    command: ['npm', 'run', 'db:migrate:deploy']
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://cid:cid@postgres:5432/cid?schema=public}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: web
+    restart: unless-stopped
+    ports:
+      - '${WEB_PORT:-3000}:3000'
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:-postgresql://cid:cid@postgres:5432/cid?schema=public}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      # Inside the compose network, reach the model host rather than the
+      # container's own localhost.
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://ollama:11434}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-http://ollama:11434}
+    env_file:
+      - path: .env
+        required: false
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "fetch('http://127.0.0.1:3000/api/health')
+          .then(r=>r.ok?process.exit(0):process.exit(1))
+          .catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: worker
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:-postgresql://cid:cid@postgres:5432/cid?schema=public}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://ollama:11434}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-http://ollama:11434}
+    env_file:
+      - path: .env
+        required: false
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # The scheduler is a singleton per cadence but safe to scale: the alert claim
+    # is atomic and rate limits are enforced in Redis. Start at 1 regardless —
+    # more replicas multiply provider requests without adding coverage.
+    deploy:
+      replicas: 1
+
+  # Optional local model server. Enable with `--profile ai`.
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ['ai']
+    restart: unless-stopped
+    ports:
+      - '${OLLAMA_PORT:-11434}:11434'
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ['CMD-SHELL', 'ollama list || exit 1']
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  postgres-data:
+  ollama-models:

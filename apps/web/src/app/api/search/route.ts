@@ -22,7 +22,7 @@ const querySchema = z.object({
 });
 
 export function GET(request: Request) {
-  return route(async () => {
+  return route(request, async () => {
     const query = parseQuery(request, querySchema);
     const { agent } = getServices();
 

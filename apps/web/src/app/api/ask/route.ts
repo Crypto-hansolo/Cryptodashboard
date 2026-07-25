@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { route } from '@/server/api';
+import { rateLimitGuard, route } from '@/server/api';
 import { getServices } from '@/server/container';
 
 /**
@@ -31,7 +31,7 @@ export async function POST(request: Request): Promise<Response> {
 
   if (!body.stream) {
     // Non-streaming path, for scripts and tests.
-    return route(async () => {
+    return route(request, async () => {
       const result = await agent.ask({
         question: body.question,
         ...(body.coinIds ? { coinIds: body.coinIds } : {}),
@@ -51,6 +51,11 @@ export async function POST(request: Request): Promise<Response> {
       };
     });
   }
+
+  // The streaming path builds its own Response, so it cannot inherit the limit
+  // from `route()`.
+  const limited = await rateLimitGuard(request);
+  if (limited) return limited;
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({

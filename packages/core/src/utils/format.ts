@@ -30,8 +30,28 @@ export function formatUsd(
     })}`;
   }
   if (abs === 0) return '$0.00';
-  // Sub-dollar: keep 4 significant digits so $0.00003412 stays readable.
-  return `${sign}$${abs.toPrecision(4).replace(/0+$/, '').replace(/\.$/, '')}`;
+
+  /*
+   * Sub-dollar: keep 4 significant digits so $0.00003412 stays readable.
+   *
+   * `toPrecision` switches to exponent notation below 1e-7, and "$1.234e-9" is
+   * not a price anyone reads — memecoins genuinely trade down there, so expand
+   * it back to positional notation instead.
+   */
+  const precise = abs.toPrecision(4);
+  const positional = precise.includes('e') ? expandExponent(precise) : precise;
+  return `${sign}$${positional.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '')}`;
+}
+
+/**
+ * Expand a small exponent-notation number ("1.234e-9") into positional digits
+ * ("0.000000001234"). Only ever called for values below 1e-7, so the exponent is
+ * always negative and `toFixed`'s 100-digit ceiling is never a concern.
+ */
+function expandExponent(value: string): string {
+  const [mantissa = '0', exponent = '0'] = value.split('e');
+  const digits = mantissa.replace('.', '').length;
+  return Number(value).toFixed(Math.abs(Number(exponent)) + digits);
 }
 
 export function formatNumber(value: number | null | undefined, decimals = 0): string {
@@ -74,8 +94,9 @@ export function formatRelativeTime(date: Date, now: Date = new Date()): string {
   const abs = Math.abs(deltaMs);
 
   const seconds = Math.floor(abs / 1000);
-  if (seconds < 10) return future ? 'now' : 'now';
-  if (seconds < 60) return `${future ? 'in ' : ''}${seconds}s${future ? '' : ''}`;
+  // Under ten seconds either way reads as "now"; nobody needs "in 3s".
+  if (seconds < 10) return 'now';
+  if (seconds < 60) return `${future ? 'in ' : ''}${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${future ? 'in ' : ''}${minutes}m`;
   const hours = Math.floor(minutes / 60);

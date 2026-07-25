@@ -29,7 +29,7 @@ const querySchema = z.object({
 });
 
 export function GET(request: Request, context: { params: Promise<{ coinId: string }> }) {
-  return route(async () => {
+  return route(request, async () => {
     const query = parseQuery(request, querySchema);
     const { coinId } = await context.params;
     const { repositories, env } = getServices();

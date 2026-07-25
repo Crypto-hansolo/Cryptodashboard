@@ -21,12 +21,14 @@ import type { IngestionService } from './ingestion.js';
  * and a 15-minute tokenomics poll have nothing to do with each other, and a slow
  * connector must not delay a fast one.
  *
- * Deliberately NOT BullMQ for this part. BullMQ is excellent for durable,
- * distributable work (it is used for enrichment and notifications), but polling
- * a price feed every 10s is neither durable nor distributable work: a missed
- * tick should be *skipped*, not queued and replayed later against stale
- * timestamps. A queue here would accumulate backlog during an outage and then
- * stampede every provider at once on recovery. See docs/DECISIONS.md.
+ * Deliberately not a job queue. A durable queue (BullMQ and friends) is the
+ * right tool when losing a unit of work is unacceptable, but polling a price
+ * feed every 10s is not that kind of work: a missed tick should be *skipped*,
+ * not queued and replayed later against stale timestamps. A queue here would
+ * accumulate backlog during an outage and then stampede every provider at once
+ * on recovery. Enrichment — which genuinely must not lose work — instead keeps
+ * its backlog in Postgres, where the pending rows *are* the queue.
+ * See docs/DECISIONS.md.
  *
  * Per-connector behaviour:
  *  - overlap prevention: a run still in flight skips the next tick

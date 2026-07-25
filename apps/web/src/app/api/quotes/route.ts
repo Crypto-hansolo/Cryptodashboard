@@ -12,13 +12,11 @@ import { getServices } from '@/server/container';
 export const dynamic = 'force-dynamic';
 
 export function GET(request: Request) {
-  return route(async () => {
+  return route(request, async () => {
     const { coinIds } = parseQuery(request, z.object({ coinIds: csv }));
     const { repositories } = getServices();
 
-    const ids =
-      coinIds ??
-      (await repositories.coins.listTracked(500)).map((coin) => coin.id);
+    const ids = coinIds ?? (await repositories.coins.listTracked(500)).map((coin) => coin.id);
 
     const quotes = await repositories.market.latestQuotes(ids);
 

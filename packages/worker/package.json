@@ -2,7 +2,7 @@
   "name": "@cid/worker",
   "version": "1.0.0",
   "private": true,
-  "description": "Background runtime: per-source scheduler, BullMQ queues, alert rule engine, notification fan-out, report cron.",
+  "description": "Background runtime: per-source scheduler, enrichment loop, alert rule engine, notification fan-out, report cron.",
   "type": "module",
   "main": "./src/main.ts",
   "scripts": {

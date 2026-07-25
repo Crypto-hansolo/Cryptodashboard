@@ -6,6 +6,7 @@ import {
   InMemoryCache,
   InMemoryRateLimiter,
   RedisCache,
+  RedisRateLimiter,
   RedisRealtimeBus,
   ResilientHttpClient,
   connectorConfig,
@@ -15,12 +16,9 @@ import {
   type Env,
 } from '@cid/platform';
 import { buildRepositories, type CidRepositories } from '@cid/db';
-import {
-  CoinGeckoSearchClient,
-  type DiscoveredCoin,
-} from '@cid/connectors';
+import { CoinGeckoSearchClient, type DiscoveredCoin } from '@cid/connectors';
 import { ResearchAgent, createEmbeddingClient, createLlmClient } from '@cid/ai';
-import type { LlmClient, EmbeddingClient, Logger, RealtimeBus } from '@cid/core';
+import type { LlmClient, EmbeddingClient, Logger, RateLimiter, RealtimeBus } from '@cid/core';
 
 /**
  * Server-side singletons for the web app.
@@ -45,6 +43,8 @@ export interface WebServices {
   agent: ResearchAgent;
   coinSearch: CoinGeckoSearchClient;
   connectorContext: ConnectorContext;
+  /** Inbound per-client limiter for the public API. See server/api.ts. */
+  apiRateLimiter: RateLimiter;
 }
 
 const globalForServices = globalThis as unknown as { cidServices?: WebServices };
@@ -76,10 +76,22 @@ function build(): WebServices {
   // takes the dashboard down.
   let realtime: RealtimeBus;
   let cache: RedisCache | InMemoryCache;
+  /*
+   * Inbound API limiting must be shared across web replicas — two instances each
+   * politely allowing RATE_LIMIT_RPM lets a client through at twice the
+   * configured rate — so it lives in Redis when Redis is there. In-memory is the
+   * degraded fallback: still a real limit, just per process.
+   */
+  let apiRateLimiter: RateLimiter;
+  const apiLimitConfig = { requestsPerMinute: env.RATE_LIMIT_RPM };
   try {
     const redis = createRedis({ url: env.REDIS_URL, logger, role: 'web' });
     cache = new RedisCache(redis, { defaultTtlSeconds: env.CACHE_TTL_SECONDS, logger });
     realtime = new RedisRealtimeBus({ url: env.REDIS_URL, logger });
+    apiRateLimiter = new RedisRateLimiter(redis, {
+      defaultConfig: apiLimitConfig,
+      prefix: 'cid:api-ratelimit:',
+    });
   } catch (error) {
     logger.warn({ err: error }, 'redis unavailable; live updates disabled');
     cache = new InMemoryCache();
@@ -87,6 +99,7 @@ function build(): WebServices {
       publish: async () => {},
       subscribe: async () => async () => {},
     };
+    apiRateLimiter = new InMemoryRateLimiter({ defaultConfig: apiLimitConfig });
   }
 
   const llmHttp = new ResilientHttpClient({
@@ -142,6 +155,7 @@ function build(): WebServices {
     agent: new ResearchAgent({ repositories, llm, embeddings, logger }),
     coinSearch: new CoinGeckoSearchClient(connectorContext),
     connectorContext,
+    apiRateLimiter,
   };
 }
 

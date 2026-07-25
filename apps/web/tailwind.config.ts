@@ -57,10 +57,19 @@ export default {
         'flash-bear': 'flashBear 700ms ease-out',
       },
       keyframes: {
-        fadeIn: { from: { opacity: '0', transform: 'translateY(-2px)' }, to: { opacity: '1', transform: 'none' } },
+        fadeIn: {
+          from: { opacity: '0', transform: 'translateY(-2px)' },
+          to: { opacity: '1', transform: 'none' },
+        },
         // Price ticks flash their direction — the standard terminal affordance.
-        flashBull: { '0%': { backgroundColor: 'rgba(16,185,129,0.18)' }, '100%': { backgroundColor: 'transparent' } },
-        flashBear: { '0%': { backgroundColor: 'rgba(244,63,94,0.18)' }, '100%': { backgroundColor: 'transparent' } },
+        flashBull: {
+          '0%': { backgroundColor: 'rgba(16,185,129,0.18)' },
+          '100%': { backgroundColor: 'transparent' },
+        },
+        flashBear: {
+          '0%': { backgroundColor: 'rgba(244,63,94,0.18)' },
+          '100%': { backgroundColor: 'transparent' },
+        },
       },
     },
   },

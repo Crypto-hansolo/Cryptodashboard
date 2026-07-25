@@ -17,7 +17,7 @@ const listQuerySchema = z.object({
 });
 
 export function GET(request: Request) {
-  return route(async () => {
+  return route(request, async () => {
     const query = parseQuery(request, listQuerySchema);
     const { repositories } = getServices();
     const userId = await getLocalUserId();
@@ -68,7 +68,7 @@ const addSchema = z.object({
 });
 
 export function POST(request: Request) {
-  return route(async () => {
+  return route(request, async () => {
     const body = addSchema.parse(await request.json());
     const { repositories, coinSearch, logger } = getServices();
     const userId = await getLocalUserId();
@@ -133,7 +133,7 @@ export function POST(request: Request) {
 const removeSchema = z.object({ coinId: z.string().min(1), watchlistId: z.string().optional() });
 
 export function DELETE(request: Request) {
-  return route(async () => {
+  return route(request, async () => {
     const query = parseQuery(request, removeSchema);
     const { repositories } = getServices();
     const userId = await getLocalUserId();
@@ -156,7 +156,7 @@ const patchSchema = z.union([
 ]);
 
 export function PATCH(request: Request) {
-  return route(async () => {
+  return route(request, async () => {
     const body = patchSchema.parse(await request.json());
     const { repositories } = getServices();
     const userId = await getLocalUserId();

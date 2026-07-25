@@ -15,8 +15,8 @@ import { getLocalUserId, getServices } from '@/server/container';
 
 export const dynamic = 'force-dynamic';
 
-export function GET() {
-  return route(async () => {
+export function GET(request: Request) {
+  return route(request, async () => {
     const { repositories } = getServices();
     const userId = await getLocalUserId();
 
@@ -60,7 +60,7 @@ const createSchema = z.object({
 });
 
 export function POST(request: Request) {
-  return route(async () => {
+  return route(request, async () => {
     const body = createSchema.parse(await request.json());
     const { repositories } = getServices();
     const userId = await getLocalUserId();
@@ -80,7 +80,7 @@ const patchSchema = z.object({
 });
 
 export function PATCH(request: Request) {
-  return route(async () => {
+  return route(request, async () => {
     const { id, ...patch } = patchSchema.parse(await request.json());
     const { repositories } = getServices();
     const alert = await repositories.alerts.update(id, patch);
@@ -89,7 +89,7 @@ export function PATCH(request: Request) {
 }
 
 export function DELETE(request: Request) {
-  return route(async () => {
+  return route(request, async () => {
     const { id } = parseQuery(request, z.object({ id: z.string().min(1) }));
     const { repositories } = getServices();
     await repositories.alerts.remove(id);

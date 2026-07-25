@@ -1353,3 +1353,99 @@ describe.skipIf(!hasDatabase)('repositories (integration)', () => {
     });
   });
 });
+
+/**
+ * Natural-language retrieval.
+ *
+ * Separate block because it covers the specific regression that made the
+ * research agent useless: a question passed verbatim to websearch_to_tsquery
+ * ANDs every word, so no headline could ever satisfy it.
+ */
+describe.skipIf(!hasDatabase)('keyword search — question handling (integration)', () => {
+  let ctx: TestContext;
+  let coinId: string;
+
+  beforeAll(() => {
+    ctx = createTestContext();
+  });
+
+  afterAll(async () => {
+    await ctx.db.$disconnect();
+  });
+
+  beforeEach(async () => {
+    await resetDatabase(ctx.db);
+    ctx.repositories.sources.clearCache();
+    await seedSources(ctx.db);
+    coinId = await seedCoin(ctx.db);
+
+    await ctx.repositories.events.insertMany([
+      {
+        occurredAt: new Date(),
+        sourceKey: 'coindesk',
+        coinId,
+        category: 'EXCHANGE_LISTING',
+        headline: 'Binance lists Cronos for spot trading',
+        url: 'https://example.test/q1',
+      },
+      {
+        occurredAt: new Date(),
+        sourceKey: 'theblock',
+        coinId,
+        category: 'SECURITY',
+        headline: 'Protocol exploited for $14M in an oracle attack',
+        url: 'https://example.test/q2',
+      },
+    ]);
+  });
+
+  it('answers a natural-language question, not just keywords', async () => {
+    // The exact shape that previously returned nothing.
+    const hits = await ctx.repositories.search.keywordSearch({
+      query: 'What happened with Binance?',
+      limit: 10,
+    });
+    expect(hits.length).toBeGreaterThan(0);
+  });
+
+  it('matches any significant term rather than requiring all of them', async () => {
+    const hits = await ctx.repositories.search.keywordSearch({
+      query: 'Tell me about the Binance listing and the oracle exploit',
+      limit: 10,
+    });
+    // Both events are relevant to different parts of the question.
+    expect(hits.length).toBe(2);
+  });
+
+  it('still honours explicit operator syntax from a search box', async () => {
+    const excluded = await ctx.repositories.search.keywordSearch({
+      query: 'trading -binance',
+      limit: 10,
+    });
+    // The Binance row is excluded, so the exclusion was respected.
+    expect(excluded.length).toBe(0);
+
+    const phrase = await ctx.repositories.search.keywordSearch({
+      query: '"spot trading"',
+      limit: 10,
+    });
+    expect(phrase.length).toBe(1);
+  });
+
+  it('returns nothing for a query with no searchable terms', async () => {
+    expect(await ctx.repositories.search.keywordSearch({ query: 'the and of', limit: 10 })).toEqual(
+      [],
+    );
+  });
+
+  it('ranks by relevance, so the best match leads', async () => {
+    const hits = await ctx.repositories.search.keywordSearch({
+      query: 'Binance spot trading listing',
+      limit: 10,
+    });
+    expect(hits[0]?.similarity).toBeGreaterThan(0);
+    for (let i = 1; i < hits.length; i++) {
+      expect(hits[i]!.similarity).toBeLessThanOrEqual(hits[i - 1]!.similarity);
+    }
+  });
+});

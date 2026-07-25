@@ -29,7 +29,6 @@ export const TOKENS = {
   clock: token<Clock>('clock'),
 
   redis: token<Redis>('redis'),
-  queueRedis: token<Redis>('queueRedis'),
 
   cache: token<Cache>('cache'),
   rateLimiter: token<RateLimiter>('rateLimiter'),

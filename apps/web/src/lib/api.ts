@@ -23,10 +23,7 @@ export class ApiRequestError extends Error {
 
 export async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...init, headers: { accept: 'application/json' } });
-  const body = (await response.json().catch(() => null)) as
-    | T
-    | { error: ApiError }
-    | null;
+  const body = (await response.json().catch(() => null)) as T | { error: ApiError } | null;
 
   if (!response.ok || body === null) {
     const error = (body as { error?: ApiError } | null)?.error;

@@ -183,7 +183,8 @@ export function Terminal({ initial }: { initial: TerminalInitialState }) {
       const params = new URLSearchParams();
       if (filters.coinIds.length > 0) params.set('coinIds', filters.coinIds.join(','));
       if (filters.categories.length > 0) params.set('categories', filters.categories.join(','));
-      if (filters.minImportance !== null) params.set('minImportance', String(filters.minImportance));
+      if (filters.minImportance !== null)
+        params.set('minImportance', String(filters.minImportance));
       if (filters.query.trim() !== '') params.set('q', filters.query.trim());
       if (nextCursor) params.set('cursor', nextCursor);
       params.set('limit', '60');
@@ -339,10 +340,7 @@ export function Terminal({ initial }: { initial: TerminalInitialState }) {
 
         {askOpen && (
           <aside className="flex min-h-0 shrink-0 flex-col border-t border-base-700 lg:w-96 lg:border-l lg:border-t-0">
-            <AskPanel
-              coinIds={filters.coinIds}
-              onClose={() => setAskOpen(false)}
-            />
+            <AskPanel coinIds={filters.coinIds} onClose={() => setAskOpen(false)} />
           </aside>
         )}
       </div>

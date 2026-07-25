@@ -1,10 +1,5 @@
 import { z } from 'zod';
-import {
-  EVENT_CATEGORIES,
-  IMPACT_LEVELS,
-  SENTIMENT_LABELS,
-  type TimelineFilter,
-} from '@cid/core';
+import { EVENT_CATEGORIES, IMPACT_LEVELS, SENTIMENT_LABELS, type TimelineFilter } from '@cid/core';
 import { csv, isoDate, parseQuery, route } from '@/server/api';
 import { getServices } from '@/server/container';
 
@@ -36,17 +31,19 @@ const querySchema = z.object({
 export const dynamic = 'force-dynamic';
 
 export function GET(request: Request) {
-  return route(async () => {
+  return route(request, async () => {
     const query = parseQuery(request, querySchema);
     const { repositories } = getServices();
 
     // Validate enum members explicitly rather than casting: a bad value in a
     // hand-edited URL should be a 400, not a silently-empty result set.
-    const categories = query.categories?.filter((value): value is (typeof EVENT_CATEGORIES)[number] =>
-      (EVENT_CATEGORIES as readonly string[]).includes(value),
+    const categories = query.categories?.filter(
+      (value): value is (typeof EVENT_CATEGORIES)[number] =>
+        (EVENT_CATEGORIES as readonly string[]).includes(value),
     );
-    const sentiments = query.sentiments?.filter((value): value is (typeof SENTIMENT_LABELS)[number] =>
-      (SENTIMENT_LABELS as readonly string[]).includes(value),
+    const sentiments = query.sentiments?.filter(
+      (value): value is (typeof SENTIMENT_LABELS)[number] =>
+        (SENTIMENT_LABELS as readonly string[]).includes(value),
     );
     const impacts = query.impacts?.filter((value): value is (typeof IMPACT_LEVELS)[number] =>
       (IMPACT_LEVELS as readonly string[]).includes(value),

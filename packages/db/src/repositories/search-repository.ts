@@ -3,6 +3,141 @@ import { Prisma } from '@prisma/client';
 import type { Db } from '../client.js';
 
 /**
+ * Words carried by almost every question but by no headline. Removing them is
+ * what turns a question into a usable OR query rather than one that can never
+ * match.
+ */
+const QUESTION_STOPWORDS = new Set([
+  'what',
+  'why',
+  'how',
+  'when',
+  'where',
+  'which',
+  'who',
+  'whose',
+  'whom',
+  'is',
+  'are',
+  'was',
+  'were',
+  'be',
+  'been',
+  'being',
+  'am',
+  'do',
+  'does',
+  'did',
+  'done',
+  'doing',
+  'has',
+  'have',
+  'had',
+  'having',
+  'can',
+  'could',
+  'will',
+  'would',
+  'should',
+  'may',
+  'might',
+  'must',
+  'the',
+  'a',
+  'an',
+  'and',
+  'or',
+  'but',
+  'if',
+  'then',
+  'than',
+  'of',
+  'in',
+  'on',
+  'at',
+  'to',
+  'for',
+  'with',
+  'from',
+  'by',
+  'about',
+  'happened',
+  'happening',
+  'happen',
+  'happens',
+  'tell',
+  'show',
+  'give',
+  'list',
+  'find',
+  'explain',
+  'any',
+  'anything',
+  'me',
+  'my',
+  'i',
+  'you',
+  'it',
+  'its',
+  'this',
+  'that',
+  'these',
+  'those',
+  'there',
+  'here',
+  'now',
+  'today',
+  'yesterday',
+  'week',
+  'day',
+  'time',
+  'going',
+  'go',
+  'get',
+  'got',
+  'much',
+  'many',
+  'some',
+  'all',
+  'more',
+  'most',
+]);
+
+/**
+ * True when the user typed something they expect operator semantics for.
+ * Quoted phrases, `-exclusions` and an explicit `or` are all websearch syntax.
+ */
+function hasSearchOperators(term: string): boolean {
+  return /["']/.test(term) || /(^|\s)-\S/.test(term) || /\bor\b/i.test(term);
+}
+
+/**
+ * Build the tsquery expression for a raw user string.
+ * Returns null when nothing searchable remains.
+ */
+function buildTsQuery(term: string): Prisma.Sql | null {
+  if (hasSearchOperators(term)) {
+    return Prisma.sql`websearch_to_tsquery('english', ${term})`;
+  }
+
+  // Extract alphanumeric terms, drop question filler and single characters.
+  const tokens = (term.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter(
+    (token) => token.length > 1 && !QUESTION_STOPWORDS.has(token),
+  );
+
+  // Everything was filler: fall back to the literal string rather than matching
+  // the entire table.
+  if (tokens.length === 0) {
+    return Prisma.sql`websearch_to_tsquery('english', ${term})`;
+  }
+
+  // Tokens are alphanumeric-only by construction, so they are safe inside a
+  // to_tsquery expression; they are still passed as a bound parameter.
+  const orQuery = [...new Set(tokens)].join(' | ');
+  return Prisma.sql`to_tsquery('english', ${orQuery})`;
+}
+
+/**
  * Semantic and keyword search.
  *
  * Everything here is raw SQL because Prisma cannot express `vector` columns or
@@ -111,8 +246,18 @@ export class PrismaSearchRepository implements SearchRepository {
    * Postgres full-text search, normalised onto the same [0,1] similarity scale
    * as the semantic path so the two can be blended or swapped transparently.
    *
-   * `websearch_to_tsquery` rather than `plainto_tsquery`: it understands quoted
-   * phrases and `-exclusions`, which is what users type into a search box.
+   * Two query modes, because this endpoint serves two very different callers:
+   *
+   *  - A search box, where the user types operators they expect to work
+   *    ("binance listing" -delist, quoted phrases). `websearch_to_tsquery`
+   *    handles those, and its AND semantics are what the user means.
+   *
+   *  - The research agent, which passes a whole natural-language question.
+   *    ANDing every word there matches nothing: "What happened with Binance?"
+   *    requires `happen & binanc`, and no headline contains "happened". The
+   *    agent's questions used to return zero evidence for exactly this reason.
+   *    So a plain question becomes an OR of its significant terms and lets
+   *    `ts_rank` do the ordering — retrieval, not filtering.
    */
   async keywordSearch(input: {
     query: string;
@@ -125,10 +270,14 @@ export class PrismaSearchRepository implements SearchRepository {
     if (term === '') return [];
     const coinIds = input.coinIds?.length ? [...input.coinIds] : null;
 
+    const tsquery = buildTsQuery(term);
+    // No usable terms at all (e.g. "???") — nothing to search for.
+    if (tsquery === null) return [];
+
     const rows = await this.#db.$queryRaw<Array<{ id: string; rank: number }>>`
-      SELECT e.id, ts_rank(e."searchVector", websearch_to_tsquery('english', ${term})) AS rank
+      SELECT e.id, ts_rank(e."searchVector", ${tsquery}) AS rank
       FROM "Event" e
-      WHERE e."searchVector" @@ websearch_to_tsquery('english', ${term})
+      WHERE e."searchVector" @@ ${tsquery}
         AND (${coinIds}::text[] IS NULL OR e."coinId" = ANY(${coinIds}::text[]))
         AND (${input.from ?? null}::timestamptz IS NULL OR e."occurredAt" >= ${input.from ?? null})
         AND (${input.to ?? null}::timestamptz IS NULL OR e."occurredAt" <= ${input.to ?? null})

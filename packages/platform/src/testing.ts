@@ -1,4 +1,14 @@
-import type { Clock } from '@cid/core';
+import {
+  UpstreamError,
+  err,
+  ok,
+  type Clock,
+  type DomainError,
+  type HttpClient,
+  type HttpRequest,
+  type HttpResponse,
+  type Result,
+} from '@cid/core';
 
 /**
  * A manually-advanced clock.
@@ -99,4 +109,116 @@ export function createFetchStub(responses: readonly StubResponse[]): FetchStub {
   }) as unknown as typeof fetch;
 
   return { fetch: fetchImpl, calls };
+}
+
+// ─── Fake HttpClient ─────────────────────────────────────────────────────────
+
+/**
+ * A route in the fake client's script: either a payload to return or an error to
+ * fail with.
+ */
+export interface StubRoute {
+  /** Substring or pattern the request URL must match. */
+  match: string | RegExp;
+  /** Parsed body to hand back. Ignored when `error` is set. */
+  body?: unknown;
+  status?: number;
+  error?: DomainError;
+  /** Text payload for `getText` (RSS/Atom). */
+  text?: string;
+}
+
+export interface RecordedRequest {
+  url: string;
+  method: string;
+  body: unknown;
+  headers: Record<string, string> | undefined;
+}
+
+/**
+ * An `HttpClient` that answers from a script instead of the network.
+ *
+ * Connectors and LLM providers are almost entirely *mapping* logic — take a
+ * provider's JSON, produce domain records — and that logic is where the bugs
+ * live: a missing field, a string where a number was expected, an out-of-order
+ * batch. Testing it needs a client that returns exact payloads, not a live API
+ * whose responses change daily and whose rate limit makes the suite slow and
+ * flaky.
+ *
+ * Matching is first-route-wins on the URL, and requests are recorded so a test
+ * can assert on what was actually asked for (which coins, which cursor, whether
+ * a key was attached).
+ */
+export class FakeHttpClient implements HttpClient {
+  readonly requests: RecordedRequest[] = [];
+  readonly #routes: StubRoute[];
+
+  constructor(routes: readonly StubRoute[] = []) {
+    this.#routes = [...routes];
+  }
+
+  /** Append a route, so a test can extend the script after construction. */
+  on(route: StubRoute): this {
+    this.#routes.push(route);
+    return this;
+  }
+
+  #resolve(url: string): StubRoute | null {
+    return (
+      this.#routes.find((route) =>
+        typeof route.match === 'string' ? url.includes(route.match) : route.match.test(url),
+      ) ?? null
+    );
+  }
+
+  async request<T>(request: HttpRequest): Promise<Result<HttpResponse<T>, DomainError>> {
+    this.requests.push({
+      url: request.url,
+      method: request.method ?? 'GET',
+      body: request.body,
+      headers: request.headers,
+    });
+
+    const route = this.#resolve(request.url);
+    if (!route) {
+      // An unrouted URL is a test-authoring mistake, not a provider failure, so
+      // it must be loud rather than a plausible-looking empty result.
+      return err(new UpstreamError('fake', `no stub route matches ${request.url}`, 404));
+    }
+    if (route.error) return err(route.error);
+
+    return ok({
+      status: route.status ?? 200,
+      headers: {},
+      data: (route.text ?? route.body) as T,
+      fromCache: false,
+      durationMs: 1,
+    });
+  }
+
+  async getJson<T>(
+    url: string,
+    options: Omit<HttpRequest, 'url' | 'method'> = {},
+  ): Promise<Result<T, DomainError>> {
+    const response = await this.request<T>({ ...options, url, method: 'GET' });
+    return response.ok ? ok(response.value.data) : err(response.error);
+  }
+
+  async getText(
+    url: string,
+    options: Omit<HttpRequest, 'url' | 'method'> = {},
+  ): Promise<Result<string, DomainError>> {
+    const response = await this.request<string>({ ...options, url, method: 'GET' });
+    return response.ok ? ok(String(response.value.data)) : err(response.error);
+  }
+
+  /** Every URL requested, in order. */
+  get urls(): string[] {
+    return this.requests.map((request) => request.url);
+  }
+
+  /** The last request, for asserting on the outgoing payload. */
+  get lastRequest(): RecordedRequest | undefined {
+    return this.requests[this.requests.length - 1];
+  }
 }

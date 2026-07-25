@@ -42,6 +42,10 @@ export default [
       ...tsPlugin.configs.recommended.rules,
       'no-undef': 'off',
       'no-unused-vars': 'off',
+      // The core rule counts a TypeScript overload signature as a redeclaration;
+      // the TS-aware version understands them.
+      'no-redeclare': 'off',
+      '@typescript-eslint/no-redeclare': 'error',
       '@typescript-eslint/no-unused-vars': [
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
