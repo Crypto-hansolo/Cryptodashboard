@@ -115,8 +115,12 @@ const BEARISH_TERMS: Readonly<Record<string, number>> = Object.freeze({
   hacked: -0.95,
   exploit: -0.9,
   exploited: -0.9,
+  exploits: -0.9,
   breach: -0.8,
+  breached: -0.8,
   drained: -0.9,
+  drains: -0.9,
+  draining: -0.9,
   rugpull: -1,
   rug: -0.8,
   scam: -0.85,
@@ -189,6 +193,7 @@ export function classifyWithLexicon(text: string): LexiconResult {
   const tokens = normalized.split(/[^a-z0-9'-]+/).filter(Boolean);
   const matched: string[] = [];
   let sum = 0;
+  let maxMagnitude = 0;
 
   // Multi-word phrases, checked against the raw normalized string.
   for (const [term, weight] of [
@@ -198,6 +203,7 @@ export function classifyWithLexicon(text: string): LexiconResult {
     if (!term.includes(' ')) continue;
     if (normalized.includes(term)) {
       sum += weight;
+      maxMagnitude = Math.max(maxMagnitude, Math.abs(weight));
       matched.push(term);
     }
   }
@@ -210,6 +216,7 @@ export function classifyWithLexicon(text: string): LexiconResult {
     const window = tokens.slice(Math.max(0, i - 3), i);
     const negated = window.some((t) => NEGATIONS.includes(t));
     sum += negated ? -weight : weight;
+    maxMagnitude = Math.max(maxMagnitude, Math.abs(weight));
     matched.push(negated ? `not:${token}` : token);
   }
 
@@ -220,8 +227,19 @@ export function classifyWithLexicon(text: string): LexiconResult {
   // Mean of matched weights, so a long article is not scored more extremely
   // than a headline making the same claim.
   const score = clamp(sum / matched.length, -1, 1);
-  // Confidence saturates at 4 matched terms.
-  const confidence = clamp(matched.length / 4, 0, 1);
+
+  /*
+   * Confidence is the greater of breadth and depth:
+   *  - breadth: matched-term count, saturating at 4
+   *  - depth:   the largest single |weight| seen
+   *
+   * Depth matters because a lone extreme term is genuinely strong evidence.
+   * "exploited" (-0.9) appearing once is not a 0.25-confidence signal, and
+   * treating it as one let a cheerfully-worded exploit disclosure ("funds are
+   * safe") keep a model's bullish verdict — the exact failure the reconciliation
+   * pass exists to catch.
+   */
+  const confidence = clamp(Math.max(matched.length / 4, maxMagnitude), 0, 1);
   return { score, confidence, matchedTerms: matched };
 }
 

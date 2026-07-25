@@ -125,9 +125,17 @@ describe('classifyWithLexicon', () => {
     expect(long.score).toBeCloseTo(short.score, 5);
   });
 
-  it('grows confidence with the number of matched terms, saturating at 1', () => {
-    expect(classifyWithLexicon('hack').confidence).toBeCloseTo(0.25);
+  it('takes confidence as the greater of term breadth and term magnitude', () => {
+    // A lone extreme term is strong evidence on its own: treating "hack" as a
+    // 0.25-confidence signal let a bullish model verdict survive an exploit
+    // disclosure, which is exactly what reconciliation must prevent.
+    expect(classifyWithLexicon('hack').confidence).toBeCloseTo(0.95);
+    // A lone mild term stays appropriately tentative.
+    expect(classifyWithLexicon('unlock').confidence).toBeCloseTo(0.4);
+    // Breadth still saturates at 1.
     expect(classifyWithLexicon('hack exploit breach drained scam fraud').confidence).toBe(1);
+    // Four mild terms reach full confidence through breadth alone.
+    expect(classifyWithLexicon('unlock staking burn milestone').confidence).toBe(1);
   });
 });
 
