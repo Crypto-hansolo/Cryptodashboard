@@ -34,15 +34,6 @@ export interface IngestionResult {
   recordsWritten: number;
 }
 
-/** Buckets whose rows carry an `eventId` assigned during ingestion. */
-const EVENT_LINKED_BUCKETS = [
-  'news',
-  'socialPosts',
-  'onchainEvents',
-  'githubActivity',
-  'proposals',
-] as const;
-
 export interface IngestionServiceOptions {
   repositories: CidRepositories;
   realtime: RealtimeBus;
@@ -140,7 +131,8 @@ export class IngestionService {
   /**
    * Write the typed records a connector produced.
    *
-   * Event-linked buckets are zipped against the inserted event ids by position,
+   * The event-linked buckets — news, socialPosts, onchainEvents, githubActivity
+   * and proposals — are zipped against the inserted event ids by position,
    * which is why connectors must emit them in the same order as their events.
    * That coupling is documented in the SDK and is the price of not making every
    * connector do its own id round trip.

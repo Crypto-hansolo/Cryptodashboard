@@ -4,6 +4,7 @@ import {
   type Logger,
   type NotificationChannel,
   type RealtimeBus,
+  type SentimentLabel,
 } from '@cid/core';
 import { noopLogger } from '@cid/core';
 import type { CidRepositories } from '@cid/db';
@@ -147,7 +148,7 @@ export class AlertEngine {
   ): Promise<{
     coinSymbol: string | null;
     importance: number | null;
-    sentiment: import('@cid/core').SentimentLabel | null;
+    sentiment: SentimentLabel | null;
     url: string | null;
   }> {
     const [coin, event] = await Promise.all([

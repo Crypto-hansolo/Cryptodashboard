@@ -75,6 +75,7 @@ jobs:
           --health-retries 20
     env:
       DATABASE_URL: postgresql://cid:cid@localhost:5432/cid_test?schema=public
+      TEST_DATABASE_URL: postgresql://cid:cid@localhost:5432/cid_test?schema=public
       REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4

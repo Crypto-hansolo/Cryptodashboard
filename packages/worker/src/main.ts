@@ -6,7 +6,6 @@ import { systemClock, type ConnectorContext } from '@cid/core';
 import {
   CircuitBreaker,
   Container,
-  InMemoryRateLimiter,
   RedisCache,
   RedisRateLimiter,
   RedisRealtimeBus,

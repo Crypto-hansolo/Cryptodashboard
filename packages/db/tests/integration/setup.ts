@@ -22,8 +22,56 @@ import { buildRepositories, type CidRepositories } from '../../src/index.js';
 
 loadEnv({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../../../.env') });
 
-export const DATABASE_URL = process.env.DATABASE_URL;
+/**
+ * Guard against truncating a real database.
+ *
+ * `resetDatabase` TRUNCATEs every table, and this harness previously defaulted
+ * to whatever `DATABASE_URL` pointed at — which meant `npm run test:integration`
+ * silently destroyed a developer's working data (it destroyed the seed data on
+ * this machine, which is how the guard came to exist).
+ *
+ * So: prefer an explicit `TEST_DATABASE_URL`, and otherwise only accept a
+ * `DATABASE_URL` whose database name marks it as disposable. Anything else makes
+ * the suite skip with a loud message rather than run destructively.
+ */
+function resolveTestDatabaseUrl(): { url: string | undefined; reason: string | null } {
+  const explicit = process.env.TEST_DATABASE_URL;
+  if (explicit) return { url: explicit, reason: null };
+
+  const fallback = process.env.DATABASE_URL;
+  if (!fallback) {
+    return { url: undefined, reason: 'neither TEST_DATABASE_URL nor DATABASE_URL is set' };
+  }
+
+  let databaseName: string;
+  try {
+    databaseName = new URL(fallback).pathname.replace(/^\//, '');
+  } catch {
+    return { url: undefined, reason: `DATABASE_URL is not a valid URL: ${fallback}` };
+  }
+
+  if (/(^|[_-])(test|ci|e2e)(_|-|$)/i.test(databaseName)) {
+    return { url: fallback, reason: null };
+  }
+
+  return {
+    url: undefined,
+    reason:
+      `refusing to run destructive integration tests against database "${databaseName}". ` +
+      'Set TEST_DATABASE_URL, or point DATABASE_URL at a database whose name contains ' +
+      '"test", "ci" or "e2e". These tests TRUNCATE every table.',
+  };
+}
+
+const resolved = resolveTestDatabaseUrl();
+
+export const DATABASE_URL = resolved.url;
 export const hasDatabase = Boolean(DATABASE_URL);
+
+if (!hasDatabase && resolved.reason) {
+  // Printed once per run so a skipped suite is never mistaken for a passing one.
+  console.warn(`[integration] skipped: ${resolved.reason}`);
+}
 
 export interface TestContext {
   db: PrismaClient;

@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    /* Prevent the whole page from scrolling: panes scroll independently, like a
+       terminal. Overflow is handled per-pane. */
+    height: 100%;
+  }
+
+  body {
+    @apply bg-base-950 text-ink font-sans text-sm antialiased;
+    height: 100%;
+    /* Tabular numerals everywhere by default — see the font note in the config. */
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Thin, unobtrusive scrollbars. The default macOS/Windows bars are far too
+     heavy for a UI with a dozen scrollable panes. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.base.600') transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    @apply bg-base-600 rounded;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    @apply bg-base-500;
+  }
+
+  /* Visible focus for keyboard users; this app is keyboard-driven. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent ring-offset-1 ring-offset-base-950;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply bg-base-900 border border-base-700 rounded-md;
+  }
+
+  .panel-header {
+    @apply flex items-center justify-between gap-2 px-3 py-2 border-b border-base-700;
+  }
+
+  .panel-title {
+    @apply text-2xs font-semibold uppercase tracking-wider text-ink-faint;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-2xs font-medium;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded border border-base-600
+           bg-base-800 px-2.5 py-1.5 text-xs font-medium text-ink
+           transition-colors hover:bg-base-700 disabled:opacity-50 disabled:pointer-events-none;
+  }
+
+  .btn-ghost {
+    @apply border-transparent bg-transparent hover:bg-base-800;
+  }
+
+  .btn-accent {
+    @apply border-accent/40 bg-accent/15 text-ink hover:bg-accent/25;
+  }
+
+  .input {
+    @apply w-full rounded border border-base-600 bg-base-850 px-2.5 py-1.5 text-xs
+           text-ink placeholder:text-ink-faint focus:border-accent/60;
+  }
+
+  /* Keyboard shortcut hint. */
+  .kbd {
+    @apply inline-flex min-w-[1.25rem] items-center justify-center rounded border
+           border-base-600 bg-base-800 px-1 font-mono text-2xs text-ink-muted;
+  }
+}
